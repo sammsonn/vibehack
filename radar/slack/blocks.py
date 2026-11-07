@@ -1,19 +1,9 @@
-"""Slack Block Kit rendering for Radar cards. Cards are re-rendered from SQLite after every click."""
+"""Slack Block Kit rendering for Radar cards. Pure: takes stored rows, returns blocks."""
 import datetime as dt
-from functools import cache
 
-from slack_sdk import WebClient
-
-from radar import calendar_api, store
-from radar.config import Settings, Team
-from radar.models import Suggestion
-
-SNOOZE_HOURS = 2
-
-
-@cache
-def slack_id(client: WebClient, email: str) -> str:
-    return client.users_lookupByEmail(email=email)["user"]["id"]
+from radar.config import Team
+from radar.core.models import Suggestion
+from radar.services.actions import SNOOZE_HOURS
 
 
 def _t(value: str | dt.datetime | None, tz: dt.tzinfo) -> str:
@@ -23,7 +13,7 @@ def _t(value: str | dt.datetime | None, tz: dt.tzinfo) -> str:
     return t.astimezone(tz).strftime("%H:%M")
 
 
-def _duration(delta: dt.timedelta) -> str:
+def duration(delta: dt.timedelta) -> str:
     minutes = max(0, int(delta.total_seconds() // 60))
     if minutes < 60:
         return f"{minutes}m"
@@ -133,7 +123,7 @@ def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]
         look = f" Look first: `{tr.look_first}`" if tr.look_first else ""
         blocks.append({"type": "divider"})
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
-            f"{emoji} *<{pr.url}|#{pr.number} {pr.title}>* ({team.display_name(pr.author)}, {_duration(created - pr.waiting_since)} waiting)\n"
+            f"{emoji} *<{pr.url}|#{pr.number} {pr.title}>* ({team.display_name(pr.author)}, {duration(created - pr.waiting_since)} waiting)\n"
             f"{tr.summary}\n"
             f"*{tr.risk.capitalize()} risk:* {tr.risk_reason.rstrip('.')}.{look}\n"
             f"{_decision_line(sg, tz)}"
@@ -163,43 +153,3 @@ def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]
     return text, blocks
 
 
-def post_card(client: WebClient, s: Settings, card_id: int) -> None:
-    lead = s.team.lead.email
-    tz = calendar_api.timezone_of(lead)
-    text, blocks = render(store.card(card_id), store.card_suggestions(card_id), tz, s.team)
-    channel = client.conversations_open(users=slack_id(client, lead))["channel"]["id"]
-    msg = client.chat_postMessage(channel=channel, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False)
-    store.set_card_message(card_id, msg["channel"], msg["ts"])
-
-
-def refresh_card(client: WebClient, s: Settings, card_id: int) -> None:
-    card = store.card(card_id)
-    if not card or not card["ts"]:
-        return
-    text, blocks = render(card, store.card_suggestions(card_id), calendar_api.timezone_of(s.team.lead.email), s.team)
-    client.chat_update(channel=card["channel"], ts=card["ts"], text=text, blocks=blocks)
-
-
-def post_reminder(client: WebClient, s: Settings, card_id: int, pending: list[Suggestion],
-                  now: dt.datetime | None = None) -> None:
-    """Refreshes the card, then nudges in its thread (also shown in the DM) if anything is still unclicked."""
-    refresh_card(client, s, card_id)
-    if not pending:
-        return
-    card = store.card(card_id)
-    now = now or dt.datetime.now(dt.timezone.utc)
-    oldest = min(pending, key=lambda sg: sg.pr.waiting_since)
-    n = len(pending)
-    link = client.chat_getPermalink(channel=card["channel"], message_ts=card["ts"])["permalink"]
-    client.chat_postMessage(
-        channel=card["channel"],
-        thread_ts=card["ts"],
-        reply_broadcast=True,
-        unfurl_links=False,
-        unfurl_media=False,
-        text=(
-            f"⏰ *You're free again.* {n} PR{'s are' if n != 1 else ' is'} still waiting on you "
-            f"(longest: #{oldest.pr.number}, {_duration(now - oldest.pr.waiting_since)}). "
-            f"Nothing has happened yet: <{link}|approve on the card>."
-        ),
-    )

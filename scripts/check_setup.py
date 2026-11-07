@@ -5,15 +5,16 @@ from googleapiclient.discovery import build
 from openai import OpenAI
 from slack_sdk import WebClient
 
-from radar import config, github_api
-from radar.google_auth import get_credentials
+from radar import config
+from radar.integrations import github
+from radar.integrations.google_auth import get_credentials
 
 
 def main() -> None:
     s = config.load()
     print(f"CONFIG ok: lead={s.team.lead.name} ({s.team.lead.github}), teammates={[m.name for m in s.team.teammates]}")
 
-    repo = github_api.live_repo(s)
+    repo = github.live_repo(s)
     print(f"GITHUB APP: access to {repo.full_name}, open PRs={repo.get_pulls(state='open').totalCount}")
     collaborators = {c.login.lower() for c in repo.get_collaborators()}
     for m in s.team.members:

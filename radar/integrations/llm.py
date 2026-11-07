@@ -1,11 +1,11 @@
+"""LLM client: asks the model for a PR summary and risk, returns validated JSON or None."""
 import json
 import logging
 
 from openai import OpenAI
 
-from radar import rules
 from radar.config import Settings
-from radar.models import PR, Triage
+from radar.core.models import PR
 
 log = logging.getLogger(__name__)
 
@@ -15,14 +15,6 @@ SYSTEM = (
     '"risk_reason": str (one sentence), "look_first": str (the file or area a reviewer should open first)}. '
     "High risk = auth, payments, database migrations, infra, security, possible data loss. Otherwise low."
 )
-MAX_PATCH_CHARS = 3000
-MAX_DIFF_CHARS = 12000
-
-
-def build_diff(files: list) -> str:
-    """files: PyGithub File objects."""
-    parts = [f"--- {f.filename} (+{f.additions}/-{f.deletions})\n{(f.patch or '')[:MAX_PATCH_CHARS]}" for f in files]
-    return "\n".join(parts)[:MAX_DIFF_CHARS]
 
 
 def _parse(raw: str) -> dict | None:
@@ -37,7 +29,7 @@ def _parse(raw: str) -> dict | None:
     return data
 
 
-def _ask(s: Settings, pr: PR) -> dict | None:
+def ask(s: Settings, pr: PR) -> dict | None:
     client = OpenAI(base_url=s.llm_base_url, api_key=s.llm_api_key, timeout=60)
     prompt = f"PR #{pr.number}: {pr.title}\n{pr.body[:1500]}\n\n{pr.diff}"
     for attempt in range(2):
@@ -57,19 +49,3 @@ def _ask(s: Settings, pr: PR) -> dict | None:
     return None
 
 
-def triage(s: Settings, pr: PR) -> Triage:
-    rule_reasons = rules.high_risk_reasons(pr.files, pr.additions + pr.deletions)
-    data = _ask(s, pr)
-    if data is None:
-        return Triage(
-            summary=pr.title,
-            risk="high" if rule_reasons else "low",
-            risk_reason=f"Touches {', '.join(rule_reasons)}" if rule_reasons else "No high-risk paths (AI summary unavailable)",
-            look_first=pr.files[0] if pr.files else "",
-        )
-    if rule_reasons:
-        reason = f"Touches {', '.join(rule_reasons)}"
-        if data["risk"] == "high":
-            reason += f". {data['risk_reason']}"
-        return Triage(data["summary"].strip(), "high", reason, data["look_first"].strip())
-    return Triage(data["summary"].strip(), data["risk"], data["risk_reason"].strip(), data["look_first"].strip())

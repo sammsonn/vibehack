@@ -9,9 +9,8 @@ from github.PaginatedList import PaginatedList
 from github.PullRequest import PullRequest
 from github.Repository import Repository
 
-from radar import llm
 from radar.config import Settings
-from radar.models import PR
+from radar.core.models import PR
 
 EXPERT_WINDOW_DAYS = 90
 EXPERT_MAX_FILES = 15
@@ -75,7 +74,7 @@ def waiting_on(pulls: list[PullRequest], lead: str) -> list[PR]:
             additions=p.additions,
             deletions=p.deletions,
             body=p.body or "",
-            diff=llm.build_diff(files),
+            diff=build_diff(files),
         ))
     return result
 
@@ -104,3 +103,13 @@ def hand_off(p: PullRequest, lead: str, reviewer: str, comment: str) -> None:
     p.create_review_request(reviewers=[reviewer])
     p.delete_review_request(reviewers=[lead])
     p.create_issue_comment(comment)
+
+
+MAX_PATCH_CHARS = 3000
+MAX_DIFF_CHARS = 12000
+
+
+def build_diff(files: list) -> str:
+    """files: PyGithub File objects."""
+    parts = [f"--- {f.filename} (+{f.additions}/-{f.deletions})\n{(f.patch or '')[:MAX_PATCH_CHARS]}" for f in files]
+    return "\n".join(parts)[:MAX_DIFF_CHARS]

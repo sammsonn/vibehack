@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 
 from radar import config
-from radar.models import Suggestion
+from radar.core.models import Suggestion
 
 DB_PATH = config.DB_PATH
 SCHEMA = """

@@ -2,12 +2,15 @@
 import datetime as dt
 import logging
 
-from radar import approval_gate, calendar_api, github_api, store
 from radar.config import Settings
-from radar.models import Candidate, Suggestion
-from radar.slack_ui import SNOOZE_HOURS
+from radar.core import schedule
+from radar.core.models import Candidate, Suggestion
+from radar.integrations import github, google_calendar
+from radar.services import approval_gate
+from radar.storage import store
 
 log = logging.getLogger(__name__)
+SNOOZE_HOURS = 2
 
 
 def _handoff_comment(s: Settings, sg: Suggestion, reviewer: Candidate, tz: dt.tzinfo) -> str:
@@ -35,15 +38,15 @@ def _block_comment(s: Settings, sg: Suggestion, start: dt.datetime, end: dt.date
 def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = None) -> None:
     """chosen: a reviewer the lead picked from the ranking; overrides Radar's suggestion."""
     lead = s.team.lead
-    tz = calendar_api.timezone_of(lead.email)
-    repo = github_api.live_repo(s)
-    pr = github_api.still_waiting_on(repo, sg.pr.number, lead.github)
+    tz = google_calendar.timezone_of(lead.email)
+    repo = github.live_repo(s)
+    pr = github.still_waiting_on(repo, sg.pr.number, lead.github)
     if pr is None:
         store.finish(sid, "stale", f"#{sg.pr.number} is closed or no longer waiting on {lead.name}")
         return
     reviewer = chosen or (sg.reviewer if sg.action == "handoff" else None)
     if reviewer:
-        github_api.hand_off(pr, lead.github, reviewer.github, _handoff_comment(s, sg, reviewer, tz))
+        github.hand_off(pr, lead.github, reviewer.github, _handoff_comment(s, sg, reviewer, tz))
         own_pick = chosen is not None and (sg.reviewer is None or chosen.github != sg.reviewer.github)
         store.finish(sid, "handed_off", f"Handed off to {reviewer.name}{' (your pick)' if own_pick else ''}",
                      handed_to=reviewer.github)
@@ -55,14 +58,14 @@ def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = N
         start, end = sg.slot
         now = dt.datetime.now(dt.timezone.utc)
         if start < now:  # approved late (e.g. after a reminder): take the next free slot instead
-            blocks = calendar_api.busy_blocks([lead.email], now, now + dt.timedelta(days=3))[lead.email]
-            slot = calendar_api.first_free_slot(blocks, now, int((end - start).total_seconds() // 60), tz)
+            blocks = google_calendar.busy_blocks([lead.email], now, now + dt.timedelta(days=3))[lead.email]
+            slot = schedule.first_free_slot(blocks, now, int((end - start).total_seconds() // 60), tz)
             if slot is None:
                 store.finish(sid, "failed", "no free slot left in working hours")
                 return
             start, end = slot
         description = f"{sg.pr.url}\n\n{sg.triage.summary}\n\nRisk: {sg.triage.risk} ({sg.triage.risk_reason})\nLook first: {sg.triage.look_first}"
-        link = calendar_api.create_review_block(lead.email, start, end, f"{calendar_api.REVIEW_BLOCK_PREFIX} #{sg.pr.number}: {sg.pr.title}", description)
+        link = google_calendar.create_review_block(lead.email, start, end, f"{google_calendar.REVIEW_BLOCK_PREFIX} #{sg.pr.number}: {sg.pr.title}", description)
         pr.create_issue_comment(_block_comment(s, sg, start, end, tz))
         label = f"Review block {start.astimezone(tz):%H:%M}–{end.astimezone(tz):%H:%M} added"
         store.finish(sid, "blocked", f"<{link}|{label}>" if link else label)

@@ -11,6 +11,32 @@ Nothing happens without the lead's click. Each PR on the card also has a **Choos
 in Radar's ranked order (with the reasons), so the lead can hand off to someone else, even on a high-risk PR. On approval Radar requests the review on GitHub and posts the summary as a
 PR comment, or creates the review block in the lead's calendar.
 
+## Code layout
+
+Each layer only imports from the layers listed after it, so the core logic is testable without any network.
+
+```
+radar/
+  cli.py                 `radar` command: run, sweep, stats, remind, gate, health
+  slack/
+    bot.py               Socket Mode bot: buttons, /radar command, scheduler + merge-gate threads
+    messages.py          posts and updates cards and reminders
+    blocks.py            Block Kit rendering (pure)
+  services/              use cases, orchestrating integrations + storage
+    sweep.py             which PRs wait on the lead, what to suggest, when to sweep automatically
+    triage.py            risk = path rules first, the LLM can only raise it
+    actions.py           every approved GitHub/Calendar write
+    reminders.py         one nudge per unclicked card once the lead is free
+    approval_gate.py     radar/approval commit status (merge gate)
+    stats.py             the number, from GitHub history + the decision log
+  storage/store.py       SQLite: cards, suggestions, decisions, versioned migrations
+  integrations/          thin clients: github.py, google_calendar.py, google_auth.py, llm.py
+  core/                  pure logic, no I/O: models, rules, ranking, schedule (busy/free math), metrics
+  config.py              settings, team, file locations
+  runtime.py             single-instance lock, heartbeat
+tests/                   one file per layer; external services are mocked
+```
+
 ## Setup
 
 ```bash

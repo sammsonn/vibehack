@@ -1,5 +1,5 @@
 """One-time Google login as the bot account. Run from vibehack/: python -m scripts.google_login"""
-from radar.google_auth import TOKEN_PATH, get_credentials
+from radar.integrations.google_auth import TOKEN_PATH, get_credentials
 
 if __name__ == "__main__":
     TOKEN_PATH.unlink(missing_ok=True)

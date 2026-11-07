@@ -1,14 +1,10 @@
-"""The number: time to first review on the live repo, PRs Radar acted on vs PRs it didn't, plus Radar's own decision log."""
+"""The number, computed: time to first review with vs without Radar, plus Radar's decision log. No I/O."""
 from __future__ import annotations
 
 import datetime as dt
 import statistics
 from collections import Counter
 from dataclasses import dataclass
-
-from github.IssueEvent import IssueEvent
-from github.PaginatedList import PaginatedList
-from github.Repository import Repository
 
 APPROVED = ("handed_off", "blocked")
 DECIDED = ("handed_off", "blocked", "kept", "snoozed", "stale")
@@ -23,40 +19,6 @@ class ReviewRecord:
     first_review_at: dt.datetime | None
     first_reviewer: str | None
     open: bool
-
-
-def _is_bot(user) -> bool:
-    return user is None or user.type == "Bot" or user.login.endswith("[bot]")
-
-
-def fetch(repo: Repository, since: dt.datetime) -> list[ReviewRecord]:
-    """PRs created since `since` with their first non-author, non-bot review."""
-    records = []
-    for p in repo.get_pulls(state="all", sort="created", direction="desc"):
-        if p.created_at < since:
-            break
-        if p.draft:
-            continue
-        start = p.created_at
-        for e in PaginatedList(IssueEvent, p._requester, f"{p.issue_url}/events", None):
-            if e.event == "ready_for_review":
-                start = e.created_at
-        reviews = [
-            r for r in p.get_reviews()
-            if r.submitted_at and r.state != "PENDING" and not _is_bot(r.user)
-            and r.user.login.lower() != p.user.login.lower() and r.submitted_at >= start
-        ]
-        first = min(reviews, key=lambda r: r.submitted_at, default=None)
-        records.append(ReviewRecord(
-            number=p.number,
-            title=p.title,
-            author=p.user.login,
-            start=start,
-            first_review_at=first.submitted_at if first else None,
-            first_reviewer=first.user.login if first else None,
-            open=p.state == "open",
-        ))
-    return records
 
 
 @dataclass(frozen=True)
@@ -137,13 +99,3 @@ def render(st: Stats, repo_name: str, days: int) -> str:
         f"• Lead's time from card to decision: *{fmt(median(st.decision_times))}* median",
     ]
     return "\n".join(lines)
-
-
-def report(s, days: int = 30, now: dt.datetime | None = None) -> str:
-    from radar import github_api, store
-
-    now = now or dt.datetime.now(dt.timezone.utc)
-    store.init()
-    repo = github_api.live_repo(s)
-    st = compute(fetch(repo, now - dt.timedelta(days=days)), store.all_suggestions(), now)
-    return render(st, repo.full_name, days)

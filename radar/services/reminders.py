@@ -2,9 +2,10 @@
 import datetime as dt
 import logging
 
-from radar import github_api, store
 from radar.config import Settings
-from radar.models import Suggestion
+from radar.core.models import Suggestion
+from radar.integrations import github
+from radar.storage import store
 
 log = logging.getLogger(__name__)
 REMIND_AFTER_FREE_CARD = dt.timedelta(minutes=30)
@@ -30,10 +31,10 @@ def due(s: Settings, now: dt.datetime) -> list[tuple[int, list[Suggestion]]]:
             continue
         if not store.fire_once(f"remind:{card_id}"):
             continue
-        repo = github_api.live_repo(s)
+        repo = github.live_repo(s)
         still_pending = []
         for sid, sg in suggestions.items():
-            if github_api.still_waiting_on(repo, sg.pr.number, lead) is None:
+            if github.still_waiting_on(repo, sg.pr.number, lead) is None:
                 if store.claim(sid, "radar"):
                     store.finish(sid, "stale", f"#{sg.pr.number} was reviewed or closed before you clicked")
             else:

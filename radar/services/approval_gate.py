@@ -4,8 +4,9 @@ import json
 import logging
 import threading
 
-from radar import github_api, store
 from radar.config import Settings, Team
+from radar.integrations import github
+from radar.storage import store
 
 log = logging.getLogger(__name__)
 CONTEXT = "radar/approval"
@@ -53,7 +54,7 @@ def _handed_off_to(pr_number: int) -> set[str]:
 
 def sync(s: Settings, numbers: list[int] | None = None) -> None:
     """Posts the gate status on open PRs (only `numbers` if given); skips PRs whose status is already current."""
-    repo = github_api.live_repo(s)
+    repo = github.live_repo(s)
     for p in repo.get_pulls(state="open"):
         if numbers and p.number not in numbers:
             continue

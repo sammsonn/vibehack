@@ -6,7 +6,7 @@ from github.PaginatedList import PaginatedList
 from github.Repository import Repository
 
 from radar.config import Settings
-from radar.core.metrics import ReviewRecord, compute, render
+from radar.core.metrics import ReviewRecord, compute, render, savings
 from radar.integrations import github
 from radar.storage import store
 
@@ -49,5 +49,17 @@ def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
     now = now or dt.datetime.now(dt.timezone.utc)
     store.init()
     repo = github.live_repo(s)
-    st = compute(fetch(repo, now - dt.timedelta(days=days)), store.all_suggestions(), now)
-    return render(st, repo.full_name, days)
+    since = now - dt.timedelta(days=days)
+    st = compute(fetch(repo, since), store.all_suggestions(), now)
+    usage = store.llm_usage_since(since)
+    sv = savings(
+        st,
+        fallback_baseline_hours=s.baseline_wait_hours,
+        blocked_cost_factor=s.blocked_cost_factor,
+        hourly_eur=s.dev_hourly_eur,
+        prompt_tokens=usage.prompt_tokens,
+        completion_tokens=usage.completion_tokens,
+        usd_per_m_input=s.llm_usd_per_m_input,
+        usd_per_m_output=s.llm_usd_per_m_output,
+    )
+    return render(st, repo.full_name, days, sv)

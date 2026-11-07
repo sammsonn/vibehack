@@ -5,6 +5,7 @@
   python -m radar sweep --dry-run           Print suggestions without posting or storing anything
   python -m radar stats [--days 30]         Time to first review with vs without Radar, plus decisions
   python -m radar remind [--at 19:05]       Send due reminders for unclicked cards now (demo)
+  python -m radar gate                      Update the radar/approval merge-gate status on open PRs now
 """
 import argparse
 import datetime as dt
@@ -12,7 +13,7 @@ import logging
 
 from slack_sdk import WebClient
 
-from radar import app, calendar_api, config, reminders, slack_ui, stats, store, sweep
+from radar import app, approval_gate, calendar_api, config, reminders, slack_ui, stats, store, sweep
 
 
 def _print(ctx: sweep.LeadContext, suggestions, tz: dt.tzinfo, team: config.Team) -> None:
@@ -36,6 +37,7 @@ def main() -> None:
     st.add_argument("--days", type=int, default=30)
     rm = sub.add_parser("remind", help="send due reminders for unclicked cards")
     rm.add_argument("--at", help="pretend it is this time (HH:MM today, or ISO timestamp)")
+    sub.add_parser("gate", help="update the radar/approval status on open PRs")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -48,6 +50,10 @@ def main() -> None:
         return
     if args.command == "stats":
         print(stats.report(s, args.days))
+        return
+    if args.command == "gate":
+        store.init()
+        approval_gate.sync(s)
         return
 
     tz = calendar_api.timezone_of(s.team.lead.email)

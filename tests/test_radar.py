@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import tempfile
 from pathlib import Path
 
-from radar import calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store
+from radar import approval_gate, calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store
 from radar.config import Member, Settings, Team
 from radar.models import PR, Candidate, Suggestion, Triage
 
@@ -212,6 +212,34 @@ class ReminderTest(unittest.TestCase):
             store.claim(row["id"], "U1")
             store.finish(row["id"], "kept")
         self.assertEqual(self.due(at(19, 5)), [])
+
+
+def review(login: str, state: str, sha: str = "head", minute: int = 0):
+    return mock.Mock(user=mock.Mock(login=login), state=state, commit_id=sha, submitted_at=at(12, minute))
+
+
+class ApprovalGateTest(unittest.TestCase):
+    def test_only_lead_unless_handed_off(self):
+        self.assertEqual(approval_gate.allowed_approvers(TEAM, "andrei", set()), {"lead"})
+        self.assertEqual(approval_gate.allowed_approvers(TEAM, "andrei", {"cone"}), {"lead", "cone"})
+
+    def test_lead_pr_can_be_approved_by_any_teammate_but_not_the_author(self):
+        self.assertEqual(approval_gate.allowed_approvers(TEAM, "lead", set()), {"andrei", "cone"})
+        self.assertEqual(approval_gate.allowed_approvers(TEAM, "andrei", {"andrei"}), {"lead"})
+
+    def test_only_latest_decisive_review_on_head_counts(self):
+        reviews = [
+            review("lead", "APPROVED", "old", 0),
+            review("cone", "APPROVED", minute=1),
+            review("cone", "COMMENTED", minute=2),
+            review("andrei", "APPROVED", minute=3),
+            review("andrei", "CHANGES_REQUESTED", minute=4),
+        ]
+        self.assertEqual(approval_gate.approvers_of_head(reviews, "head"), {"cone"})
+
+    def test_evaluate(self):
+        self.assertEqual(approval_gate.evaluate({"lead"}, {"cone"}), ("pending", "Needs approval from @lead"))
+        self.assertEqual(approval_gate.evaluate({"lead", "cone"}, {"cone"}), ("success", "Approved by @cone"))
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ class RenderTest(unittest.TestCase):
         card = {"id": 7, "created_at": NOW.isoformat(), "header": "📅 *Demo* starts in 10 min"}
         rows = [{"id": i, "payload": sg.to_json(), "status": "pending", "decided_by": None, "decided_at": None,
                  "snoozed_until": None, "result": None} for i, sg in enumerate([block, handoff], start=1)]
-        _, kit = blocks.render(card, rows, TZ, TEAM)
+        _, kit = blocks.render(card, rows, TZ, TEAM, NOW)
         ids = [e["action_id"] for b in kit if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("radar:approve:1", ids)
         self.assertIn("radar:all:7", ids)
@@ -34,6 +34,13 @@ def row(i, sg, status="pending", decided_at=None):
             "snoozed_until": None, "result": None}
 
 
+class SlotLabelTest(unittest.TestCase):
+    def test_block_button_names_the_day_when_not_today(self):
+        tomorrow = (at(9, 30) + blocks.dt.timedelta(days=1), at(10) + blocks.dt.timedelta(days=1))
+        sg = Suggestion(make_pr(3), HIGH, "block", "High risk", None, tomorrow, at(19))
+        self.assertEqual(blocks.primary_label(sg, TZ, NOW), "📅 Block tomorrow 09:30–10:00 to review")
+
+
 class ReplacedRowsTest(unittest.TestCase):
     card = {"id": 3, "created_at": NOW.isoformat(), "header": "h"}
     handoff = Suggestion(make_pr(1), LOW, "handoff", "why", Candidate("cone", "Cone", True, 3, 0), None, at(19))
@@ -41,7 +48,7 @@ class ReplacedRowsTest(unittest.TestCase):
 
     def test_replaced_row_is_greyed_out_without_buttons(self):
         rows = [row(1, self.block, "superseded", at(19, 32).isoformat()), row(2, self.handoff)]
-        _, kit = blocks.render(self.card, rows, TZ, TEAM)
+        _, kit = blocks.render(self.card, rows, TZ, TEAM, NOW)
         self.assertIn("1 PR is waiting on you. 1 moved to a newer card.", kit[0]["text"]["text"])
         grey = [e["text"] for b in kit if b["type"] == "context" for e in b["elements"] if "~" in e["text"]]
         self.assertEqual(grey, ["🔴 ~<https://github.com/o/r/pull/3|#3 PR 3>~ · ↪️ Moved to a newer card at 19:32"])
@@ -52,7 +59,7 @@ class ReplacedRowsTest(unittest.TestCase):
 
     def test_fully_replaced_card(self):
         rows = [row(1, self.block, "superseded", at(19, 32).isoformat()), row(2, self.handoff, "superseded", at(19, 32).isoformat())]
-        _, kit = blocks.render(self.card, rows, TZ, TEAM)
+        _, kit = blocks.render(self.card, rows, TZ, TEAM, NOW)
         self.assertIn("All PRs on this card moved to a newer card.", kit[0]["text"]["text"])
         self.assertFalse([b for b in kit if b["type"] == "actions"])
 

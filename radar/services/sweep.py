@@ -62,6 +62,10 @@ def build(s: Settings, now: dt.datetime, auto: bool = False,
         prs = [p for p in prs if now - p.waiting_since >= min_wait]
     if auto:
         prs = [p for p in prs if not store.recently_handled(p.number, p.head_sha, now)]
+    booked = google_calendar.upcoming_review_blocks(lead.email, now)
+    if booked:
+        log.info("skipping PRs with a review block already booked: %s", sorted(p for p in booked if p in {x.number for x in prs}))
+        prs = [p for p in prs if p.number not in booked]
     prs.sort(key=lambda p: p.waiting_since)  # longest-waiting PR gets the earliest review slot
 
     horizon = now + dt.timedelta(days=3)

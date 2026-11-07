@@ -50,3 +50,15 @@ def first_free_slot(blocks: list[Block], after: dt.datetime, minutes: int, tz: d
         if cursor + length <= window_end:
             return cursor, cursor + length
     return None
+
+
+def describe_slot(slot: Block, tz: dt.tzinfo, now: dt.datetime) -> str:
+    """'09:30–10:00' today, 'tomorrow 09:30–10:00', else 'Mon 09 Nov 09:30–10:00' (all in `tz`)."""
+    start, end = (t.astimezone(tz) for t in slot)
+    times = f"{start:%H:%M}–{end:%H:%M}"
+    days = (start.date() - now.astimezone(tz).date()).days
+    if days == 0:
+        return times
+    if days == 1:
+        return f"tomorrow {times}"
+    return f"{start:%a %d %b} {times}"

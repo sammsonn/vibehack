@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 import threading
 from functools import cache
 from zoneinfo import ZoneInfo
@@ -59,8 +60,27 @@ def events_between(calendar_id: str, start: dt.datetime, end: dt.datetime) -> li
             # Radar's own review blocks: busy time, but not a call (older blocks have no tag, only the title)
             "review_block": e.get("extendedProperties", {}).get("private", {}).get("radar") == "review-block"
             or e.get("summary", "").startswith(REVIEW_BLOCK_PREFIX),
+            "pr": _block_pr(e),
         })
     return events
+
+
+def _block_pr(event: dict) -> int | None:
+    """PR number of a Radar review block: from the private tag, or the title for blocks made before tagging."""
+    tagged = event.get("extendedProperties", {}).get("private", {}).get("pr")
+    if tagged and tagged.isdigit():
+        return int(tagged)
+    match = re.match(re.escape(REVIEW_BLOCK_PREFIX) + r" #(\d+)\b", event.get("summary", ""))
+    return int(match.group(1)) if match else None
+
+
+def upcoming_review_blocks(calendar_id: str, now: dt.datetime, days: int = 7) -> dict[int, Block]:
+    """Earliest not-yet-finished Radar review block per PR number."""
+    blocks: dict[int, Block] = {}
+    for e in events_between(calendar_id, now, now + dt.timedelta(days=days)):
+        if e["review_block"] and e["pr"] and e["end"] > now and e["pr"] not in blocks:
+            blocks[e["pr"]] = (e["start"], e["end"])
+    return blocks
 
 
 def busy_blocks(emails: list[str], start: dt.datetime, end: dt.datetime) -> dict[str, list[Block]]:
@@ -80,13 +100,14 @@ def busy_blocks(emails: list[str], start: dt.datetime, end: dt.datetime) -> dict
     return blocks
 
 
-def create_review_block(calendar_id: str, start: dt.datetime, end: dt.datetime, summary: str, description: str) -> str:
+def create_review_block(calendar_id: str, start: dt.datetime, end: dt.datetime, summary: str, description: str,
+                        pr_number: int) -> str:
     event = service().events().insert(calendarId=calendar_id, body={
         "summary": summary,
         "description": description,
         "start": {"dateTime": start.isoformat()},
         "end": {"dateTime": end.isoformat()},
         "reminders": {"useDefault": False, "overrides": [{"method": "popup", "minutes": 5}]},
-        "extendedProperties": {"private": REVIEW_BLOCK_TAG},
+        "extendedProperties": {"private": {**REVIEW_BLOCK_TAG, "pr": str(pr_number)}},
     }).execute()
     return event.get("htmlLink", "")

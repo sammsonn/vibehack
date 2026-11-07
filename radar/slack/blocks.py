@@ -3,6 +3,7 @@ import datetime as dt
 
 from radar.config import Team
 from radar.core.models import Suggestion
+from radar.core.schedule import describe_slot
 from radar.services.actions import SNOOZE_HOURS
 
 
@@ -74,19 +75,19 @@ def reviewer_picker(sg: Suggestion, sid: str, tz: dt.tzinfo) -> dict | None:
     }
 
 
-def primary_label(sg: Suggestion, tz: dt.tzinfo) -> str | None:
+def primary_label(sg: Suggestion, tz: dt.tzinfo, now: dt.datetime | None = None) -> str | None:
     if sg.action == "handoff":
         return f"✅ Hand off to {sg.reviewer.name}"
     if sg.slot:
-        return f"📅 Block {_t(sg.slot[0], tz)}–{_t(sg.slot[1], tz)} to review"
+        return f"📅 Block {describe_slot(sg.slot, tz, now or dt.datetime.now(dt.timezone.utc))} to review"
     return None
 
 
-def _decision_line(sg: Suggestion, tz: dt.tzinfo) -> str:
+def _decision_line(sg: Suggestion, tz: dt.tzinfo, now: dt.datetime) -> str:
     if sg.action == "handoff":
         return f"→ Suggest *{sg.reviewer.name}* ({sg.reviewer.why})"
     if sg.slot:
-        return f"→ {sg.why}. Next free slot *{_t(sg.slot[0], tz)}–{_t(sg.slot[1], tz)}*"
+        return f"→ {sg.why}. Next free slot *{describe_slot(sg.slot, tz, now)}*"
     return f"→ {sg.why}. No free slot in working hours"
 
 
@@ -107,7 +108,9 @@ def _outcome(row, tz: dt.tzinfo) -> str:
     }.get(status, status)
 
 
-def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]]:
+def render(card, rows: list, tz: dt.tzinfo, team: Team, now: dt.datetime | None = None) -> tuple[str, list[dict]]:
+    """`now` decides 'today' vs 'tomorrow' in slot labels (defaults to the real time)."""
+    now = now or dt.datetime.now(dt.timezone.utc)
     created = dt.datetime.fromisoformat(card["created_at"])
     n = len(rows)
     moved = sum(1 for row in rows if row["status"] == "superseded")
@@ -140,13 +143,13 @@ def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]
             f"{emoji} *<{pr.url}|#{pr.number} {pr.title}>* ({team.display_name(pr.author)}, {duration(created - pr.waiting_since)} waiting)\n"
             f"{tr.summary}\n"
             f"*{tr.risk.capitalize()} risk:* {tr.risk_reason.rstrip('.')}.{look}\n"
-            f"{_decision_line(sg, tz)}"
+            f"{_decision_line(sg, tz, now)}"
         )[:2900]}})
         if row["status"] == "pending":
             pending += 1
             sid = str(row["id"])
             buttons = []
-            label = primary_label(sg, tz)
+            label = primary_label(sg, tz, now)
             if label:
                 buttons.append(_button(label, f"radar:approve:{sid}", sid, "primary"))
             buttons.append(_button("🙋 Keep", f"radar:keep:{sid}", sid))

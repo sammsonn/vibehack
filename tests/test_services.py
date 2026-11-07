@@ -61,6 +61,22 @@ class TokenUsageTest(unittest.TestCase):
             record.assert_not_called()
 
 
+class ReviewBlockLookupTest(unittest.TestCase):
+    def test_pr_number_from_tag_or_title(self):
+        from radar.integrations import google_calendar as g
+        self.assertEqual(g._block_pr({"extendedProperties": {"private": {"radar": "review-block", "pr": "8"}}}), 8)
+        self.assertEqual(g._block_pr({"summary": "🔍 Review PR #5: Verify Stripe webhook signatures"}), 5)
+        self.assertIsNone(g._block_pr({"summary": "Sync BCR"}))
+
+    def test_earliest_unfinished_block_per_pr(self):
+        from radar.integrations import google_calendar as g
+        ev = lambda pr, s, e, rb=True: {"pr": pr, "start": s, "end": e, "review_block": rb}  # noqa: E731
+        events = [ev(5, at(16), at(16, 30)), ev(5, at(19, 30), at(20)), ev(5, at(21), at(21, 30)),
+                  ev(8, at(20), at(20, 30)), ev(None, at(17), at(18), False)]
+        with mock.patch.object(g, "events_between", return_value=events):
+            self.assertEqual(g.upcoming_review_blocks("lead@x.com", NOW), {5: (at(19, 30), at(20)), 8: (at(20), at(20, 30))})
+
+
 class ReminderTest(unittest.TestCase):
     def setUp(self):
         patcher = mock.patch.object(store, "DB_PATH", Path(tempfile.mkdtemp()) / "t.db")
@@ -153,6 +169,27 @@ class LeadContextTest(unittest.TestCase):
     def test_upcoming_review_block_is_not_a_precall(self):
         c = self.ctx([self.event("🔍 Review PR #3: x", at(19), at(19, 30), True)], at(18, 55))
         self.assertEqual((c.header, c.upcoming_event), ("No calls right now", None))
+
+
+class ExistingBlockTest(unittest.TestCase):
+    def test_approving_an_old_card_reuses_the_booked_block(self):
+        with mock.patch.object(store, "DB_PATH", Path(tempfile.mkdtemp()) / "t.db"):
+            store.init()
+            sg = Suggestion(make_pr(5), HIGH, "block", "High risk", None, (at(19), at(19, 30)), at(19))
+            card = store.create_card("manual", "h", [sg])
+            sid = store.card_suggestions(card)[0]["id"]
+            settings = mock.Mock(spec=Settings)
+            settings.team = TEAM
+            with mock.patch.object(actions.google_calendar, "timezone_of", return_value=TZ), \
+                 mock.patch.object(actions.google_calendar, "upcoming_review_blocks", return_value={5: (at(19, 30), at(20))}), \
+                 mock.patch.object(actions.google_calendar, "create_review_block") as create, \
+                 mock.patch.object(actions.github, "live_repo"), \
+                 mock.patch.object(actions.github, "still_waiting_on"):
+                self.assertTrue(actions.execute(settings, sid, "approve", "U1"))
+            create.assert_not_called()
+            row = store.suggestion(sid)
+            self.assertEqual(row["status"], "blocked")
+            self.assertIn("already booked", row["result"])
 
 
 class ReviewerPickTest(unittest.TestCase):

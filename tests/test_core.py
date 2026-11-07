@@ -121,6 +121,14 @@ class StatsTest(unittest.TestCase):
         self.assertIn("3 suggested · 2 approved (1 handoff, 1 review block) · 1 kept", text)
 
 
+class DescribeSlotTest(unittest.TestCase):
+    def test_today_tomorrow_later(self):
+        day = dt.timedelta(days=1)
+        self.assertEqual(schedule.describe_slot((at(19), at(19, 30)), TZ, NOW), "19:00–19:30")
+        self.assertEqual(schedule.describe_slot((at(9, 30) + day, at(10) + day), TZ, NOW), "tomorrow 09:30–10:00")
+        self.assertEqual(schedule.describe_slot((at(9) + 2 * day, at(9, 30) + 2 * day), TZ, NOW), "Mon 09 Nov 09:00–09:30")
+
+
 class SavingsTest(unittest.TestCase):
     def stats(self, without_h, with_h):
         hours = lambda hs: [dt.timedelta(hours=h) for h in hs]  # noqa: E731

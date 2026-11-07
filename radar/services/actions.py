@@ -63,6 +63,10 @@ def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = N
     elif sg.slot:
         start, end = sg.slot
         now = dt.datetime.now(dt.timezone.utc)
+        existing = google_calendar.upcoming_review_blocks(lead.email, now).get(sg.pr.number)
+        if existing:  # e.g. a button on an older card: never book the same PR twice
+            store.finish(sid, "blocked", f"Review block already booked {schedule.describe_slot(existing, tz, now)}")
+            return
         if start < now:  # approved late (e.g. after a reminder): take the next free slot instead
             blocks = google_calendar.busy_blocks([lead.email], now, now + dt.timedelta(days=3))[lead.email]
             slot = schedule.first_free_slot(blocks, now, int((end - start).total_seconds() // 60), tz)
@@ -71,9 +75,12 @@ def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = N
                 return
             start, end = slot
         description = f"{sg.pr.url}\n\n{sg.triage.summary}\n\nRisk: {sg.triage.risk} ({sg.triage.risk_reason})\nLook first: {sg.triage.look_first}"
-        link = google_calendar.create_review_block(lead.email, start, end, f"{google_calendar.REVIEW_BLOCK_PREFIX} #{sg.pr.number}: {sg.pr.title}", description)
+        link = google_calendar.create_review_block(
+            lead.email, start, end, f"{google_calendar.REVIEW_BLOCK_PREFIX} #{sg.pr.number}: {sg.pr.title}", description,
+            sg.pr.number,
+        )
         pr.create_issue_comment(_block_comment(s, sg, start, end, tz))
-        label = f"Review block {start.astimezone(tz):%H:%M}–{end.astimezone(tz):%H:%M} added"
+        label = f"Review block {schedule.describe_slot((start, end), tz, now)} added"
         store.finish(sid, "blocked", f"<{link}|{label}>" if link else label)
     else:
         store.finish(sid, "failed", "nothing to approve")

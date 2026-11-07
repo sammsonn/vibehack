@@ -21,6 +21,19 @@ class PR:
 
 
 @dataclass(frozen=True)
+class TokenUsage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+    def __add__(self, other: "TokenUsage") -> "TokenUsage":
+        return TokenUsage(self.prompt_tokens + other.prompt_tokens, self.completion_tokens + other.completion_tokens)
+
+    @property
+    def total(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+
+@dataclass(frozen=True)
 class Triage:
     summary: str
     risk: str  # "low" | "high"

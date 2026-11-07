@@ -76,7 +76,57 @@ def median(values: list[dt.timedelta]) -> dt.timedelta | None:
     return statistics.median(values) if values else None
 
 
-def render(st: Stats, repo_name: str, days: int) -> str:
+MIN_BASELINE_PRS = 3  # fewer "without Radar" reviews than this: use the interview's baseline instead
+
+
+@dataclass(frozen=True)
+class Savings:
+    prs: int  # PRs whose first review came after a Radar action
+    baseline: dt.timedelta
+    baseline_source: str
+    wait_avoided: dt.timedelta
+    factor: float
+    dev_hours: float
+    hourly_eur: float
+    eur: float
+    tokens: int
+    usd_per_m_input: float
+    usd_per_m_output: float
+    model_usd: float
+
+
+def savings(st: Stats, *, fallback_baseline_hours: float, blocked_cost_factor: float, hourly_eur: float,
+            prompt_tokens: int, completion_tokens: int, usd_per_m_input: float, usd_per_m_output: float) -> Savings:
+    """Developer-hours saved = sum over Radar-assisted PRs of max(0, baseline wait - actual wait) x blocked-cost factor.
+    The baseline is the live "without Radar" median once there is enough data, else the interview's estimate."""
+    if len(st.without_radar) >= MIN_BASELINE_PRS:
+        baseline = median(st.without_radar)
+        source = f"median without Radar, n={len(st.without_radar)}"
+    else:
+        baseline = dt.timedelta(hours=fallback_baseline_hours)
+        source = "BASELINE_WAIT_HOURS from the interview"
+    avoided = sum((max(dt.timedelta(0), baseline - wait) for wait in st.with_radar), dt.timedelta(0))
+    dev_hours = avoided.total_seconds() / 3600 * blocked_cost_factor
+    model_usd = prompt_tokens / 1e6 * usd_per_m_input + completion_tokens / 1e6 * usd_per_m_output
+    return Savings(len(st.with_radar), baseline, source, avoided, blocked_cost_factor, dev_hours, hourly_eur,
+                   dev_hours * hourly_eur, prompt_tokens + completion_tokens, usd_per_m_input, usd_per_m_output, model_usd)
+
+
+def _usd(value: float) -> str:
+    return f"${value:.2f}" if value >= 0.01 or value == 0 else f"${value:.3f}"
+
+
+def savings_lines(sv: Savings, days: int) -> list[str]:
+    period = "this week" if days == 7 else f"in the last {days} days"
+    return [
+        f"💰 *Saved ~{sv.dev_hours:.1f} developer-hours {period} ≈ €{sv.eur:,.0f}* vs ~{_usd(sv.model_usd)} model cost",
+        f"_{sv.prs} PR{'s' if sv.prs != 1 else ''} reviewed after a Radar action · {fmt(sv.wait_avoided)} of waiting avoided "
+        f"vs the {fmt(sv.baseline)} baseline ({sv.baseline_source}) × {sv.factor:g} blocked-cost factor × €{sv.hourly_eur:g}/h · "
+        f"{sv.tokens:,} LLM tokens at {_usd(sv.usd_per_m_input)}/{_usd(sv.usd_per_m_output)} per 1M in/out_",
+    ]
+
+
+def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None) -> str:
     def line(label: str, values: list[dt.timedelta]) -> str:
         return f"• {label}: *{fmt(median(values))}* median (n={len(values)})"
 
@@ -98,4 +148,6 @@ def render(st: Stats, repo_name: str, days: int) -> str:
         f" · {c['kept']} kept · {c['snoozed']} snoozed · {c['pending']} open",
         f"• Lead's time from card to decision: *{fmt(median(st.decision_times))}* median",
     ]
+    if sv:
+        lines += savings_lines(sv, days)
     return "\n".join(lines)

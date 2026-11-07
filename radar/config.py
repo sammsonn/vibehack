@@ -68,6 +68,12 @@ class Settings:
     precall_minutes: int
     poll_minutes: int
     team: Team
+    # Assumptions behind "hours saved" and model cost in /radar stats
+    baseline_wait_hours: float = 8.0
+    blocked_cost_factor: float = 0.25
+    dev_hourly_eur: float = 20.0
+    llm_usd_per_m_input: float = 0.10
+    llm_usd_per_m_output: float = 0.50
 
 
 def _require(name: str) -> str:
@@ -111,5 +117,10 @@ def load() -> Settings:
         stale_hours=float(os.getenv("STALE_HOURS", "4")),
         precall_minutes=int(os.getenv("PRECALL_MINUTES", "10")),
         poll_minutes=int(os.getenv("POLL_MINUTES", "5")),
+        baseline_wait_hours=float(os.getenv("BASELINE_WAIT_HOURS", "8")),
+        blocked_cost_factor=float(os.getenv("BLOCKED_COST_FACTOR", "0.25")),
+        dev_hourly_eur=float(os.getenv("DEV_HOURLY_EUR", "20")),
+        llm_usd_per_m_input=float(os.getenv("LLM_USD_PER_M_INPUT", "0.10")),
+        llm_usd_per_m_output=float(os.getenv("LLM_USD_PER_M_OUTPUT", "0.50")),
         team=_load_team(TEAM_FILE),
     )

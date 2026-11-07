@@ -79,11 +79,11 @@ def main() -> None:
 
     tz = google_calendar.timezone_of(s.team.lead.email)
     now = bot.parse_at(args.at, tz) or dt.datetime.now(dt.timezone.utc)
+    store.init()
     if getattr(args, "dry_run", False):
         ctx, suggestions = sweep.build(s, now)
         _print(ctx, suggestions, tz, s.team)
         return
-    store.init()
     client = WebClient(token=s.slack_bot_token)
     if args.command == "remind":
         due = reminders.due(s, now)

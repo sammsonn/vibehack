@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 
 from radar import config
-from radar.core.models import Suggestion
+from radar.core.models import Suggestion, TokenUsage
 
 DB_PATH = config.DB_PATH
 SCHEMA = """
@@ -61,9 +61,22 @@ def _add_handed_to(c: sqlite3.Connection) -> None:
 
 # Schema version N is reached by running MIGRATIONS[:N] in order; the version is kept in PRAGMA user_version.
 # Every step must be safe on databases created before versioning existed. Append new steps, never edit old ones.
+LLM_USAGE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id INTEGER PRIMARY KEY,
+    at TEXT NOT NULL,
+    model TEXT NOT NULL,
+    pr_number INTEGER,
+    prompt_tokens INTEGER NOT NULL,
+    completion_tokens INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS llm_usage_at ON llm_usage (at);
+"""
+
 MIGRATIONS = [
     lambda c: c.executescript(SCHEMA),
     _add_handed_to,
+    lambda c: c.executescript(LLM_USAGE_SCHEMA),
 ]
 
 
@@ -177,3 +190,20 @@ def pending_by_card() -> dict[int, list[sqlite3.Row]]:
     for row in rows:
         result.setdefault(row["card_id"], []).append(row)
     return result
+
+
+def record_llm_usage(model: str, pr_number: int | None, usage: TokenUsage) -> None:
+    with connect() as c:
+        c.execute(
+            "INSERT INTO llm_usage (at, model, pr_number, prompt_tokens, completion_tokens) VALUES (?, ?, ?, ?, ?)",
+            (_now(), model, pr_number, usage.prompt_tokens, usage.completion_tokens),
+        )
+
+
+def llm_usage_since(since: dt.datetime) -> TokenUsage:
+    with connect() as c:
+        row = c.execute(
+            "SELECT COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0) FROM llm_usage WHERE at >= ?",
+            (since.astimezone(dt.timezone.utc).isoformat(),),
+        ).fetchone()
+    return TokenUsage(row[0], row[1])

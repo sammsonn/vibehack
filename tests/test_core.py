@@ -121,5 +121,35 @@ class StatsTest(unittest.TestCase):
         self.assertIn("3 suggested · 2 approved (1 handoff, 1 review block) · 1 kept", text)
 
 
+class SavingsTest(unittest.TestCase):
+    def stats(self, without_h, with_h):
+        hours = lambda hs: [dt.timedelta(hours=h) for h in hs]  # noqa: E731
+        return metrics.Stats(hours(without_h), hours(with_h), [], Counter(), [], set())
+
+    def savings(self, st):
+        return metrics.savings(st, fallback_baseline_hours=8, blocked_cost_factor=0.25, hourly_eur=20,
+                               prompt_tokens=200_000, completion_tokens=40_000, usd_per_m_input=0.10, usd_per_m_output=0.50)
+
+    def test_uses_live_baseline_when_enough_data(self):
+        sv = self.savings(self.stats([10, 12, 20], [2, 4, 15]))  # baseline 12h; 15h is slower, counts as 0 not negative
+        self.assertEqual(sv.baseline, dt.timedelta(hours=12))
+        self.assertIn("n=3", sv.baseline_source)
+        self.assertEqual(sv.wait_avoided, dt.timedelta(hours=18))
+        self.assertAlmostEqual(sv.dev_hours, 4.5)
+        self.assertAlmostEqual(sv.eur, 90)
+        self.assertAlmostEqual(sv.model_usd, 0.04)
+
+    def test_falls_back_to_interview_baseline(self):
+        sv = self.savings(self.stats([10], [2]))
+        self.assertEqual((sv.baseline, sv.baseline_source), (dt.timedelta(hours=8), "BASELINE_WAIT_HOURS from the interview"))
+        self.assertAlmostEqual(sv.dev_hours, 1.5)
+
+    def test_line(self):
+        lines = metrics.savings_lines(self.savings(self.stats([10, 12, 20], [2, 4, 15])), 7)
+        self.assertEqual(lines[0], "💰 *Saved ~4.5 developer-hours this week ≈ €90* vs ~$0.04 model cost")
+        self.assertIn("240,000 LLM tokens", lines[1])
+        self.assertIn("in the last 30 days", metrics.savings_lines(self.savings(self.stats([], [])), 30)[0])
+
+
 if __name__ == "__main__":
     unittest.main()

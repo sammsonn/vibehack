@@ -99,6 +99,12 @@ the Slack app settings (Slash Commands → Create New Command, then reinstall th
 review by someone other than the author, bots excluded. "With Radar" counts PRs where the lead approved a Radar
 handoff or review block before that first review; all other PRs count as "without Radar".
 
+**Hours saved and cost** (last line of `/radar stats`): for each PR reviewed after a Radar action, the wait avoided is
+`max(0, baseline − actual wait)`. The baseline is the live "without Radar" median once at least 3 such PRs exist,
+otherwise `BASELINE_WAIT_HOURS` from the interview. Developer-hours = total wait avoided × `BLOCKED_COST_FACTOR`,
+priced at `DEV_HOURLY_EUR`. Model cost uses the real token count of every LLM call (logged in `radar.db`) at
+`LLM_USD_PER_M_INPUT` / `LLM_USD_PER_M_OUTPUT`. The footnote under the line shows every number used.
+
 Automatic triggers (every `POLL_MINUTES`): a card before each of the lead's calendar events (`PRECALL_MINUTES`), and
 for PRs waiting longer than `STALE_HOURS` while the lead is in a meeting. When the lead is free again and a card
 is still unclicked, Radar replies once in the card's thread (PRs reviewed in the meantime are skipped). Every card, suggestion and decision is

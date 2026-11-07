@@ -51,6 +51,19 @@ class MigrationTest(unittest.TestCase):
                 self.assertEqual(c.execute("PRAGMA journal_mode").fetchone()[0], "wal")
 
 
+class LlmUsageStoreTest(unittest.TestCase):
+    def test_sums_usage_since(self):
+        import datetime as dt
+        from radar.core.models import TokenUsage
+        with mock.patch.object(store, "DB_PATH", Path(tempfile.mkdtemp()) / "t.db"):
+            store.init()
+            with mock.patch.object(store, "_now", return_value="2026-11-01T10:00:00+00:00"):
+                store.record_llm_usage("m", 1, TokenUsage(1000, 100))
+            store.record_llm_usage("m", 2, TokenUsage(500, 50))
+            since = dt.datetime(2026, 11, 5, tzinfo=dt.timezone.utc)
+            self.assertEqual(store.llm_usage_since(since), TokenUsage(500, 50))
+
+
 class PathSettingTest(unittest.TestCase):
     def test_relative_paths_resolve_against_root_and_absolute_paths_win(self):
         with mock.patch.dict(os.environ, {"X_PATH": "data/x.db"}):

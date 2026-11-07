@@ -7,7 +7,7 @@ from unittest import mock
 
 from radar.config import Member, Settings, Team
 from radar.core import ranking
-from radar.core.models import Candidate, Suggestion
+from radar.core.models import Candidate, Suggestion, TokenUsage
 from radar.integrations import llm
 from radar.services import actions, approval_gate, reminders, sweep, triage
 from radar.slack import blocks
@@ -25,13 +25,39 @@ class LlmTest(unittest.TestCase):
 
     def test_rules_override_llm_low(self):
         pr = make_pr(files=("payments/webhook.py",))
-        with mock.patch.object(triage.llm, "ask", return_value={"summary": "s", "risk": "low", "risk_reason": "r", "look_first": "f"}):
+        with mock.patch.object(triage.llm, "ask", return_value=({"summary": "s", "risk": "low", "risk_reason": "r", "look_first": "f"}, TokenUsage())):
             self.assertEqual(triage.triage(self.settings, pr).risk, "high")
 
     def test_falls_back_to_rules_without_llm(self):
-        with mock.patch.object(triage.llm, "ask", return_value=None):
+        with mock.patch.object(triage.llm, "ask", return_value=(None, TokenUsage())):
             t = triage.triage(self.settings, make_pr(files=("migrations/1.sql",)))
         self.assertEqual((t.risk, t.summary), ("high", "PR 1"))
+
+
+class TokenUsageTest(unittest.TestCase):
+    def reply(self, content, prompt=100, completion=40):
+        return mock.Mock(choices=[mock.Mock(message=mock.Mock(content=content))],
+                         usage=mock.Mock(prompt_tokens=prompt, completion_tokens=completion))
+
+    def test_ask_counts_tokens_of_every_attempt(self):
+        good = '{"summary": "s", "risk": "low", "risk_reason": "r", "look_first": "f"}'
+        settings = mock.Mock(spec=Settings, llm_base_url="u", llm_api_key="k", llm_model="m")
+        with mock.patch.object(llm, "OpenAI") as client:
+            client.return_value.chat.completions.create.side_effect = [self.reply("not json"), self.reply(good, 50, 10)]
+            data, usage = llm.ask(settings, make_pr())
+        self.assertEqual(data["risk"], "low")
+        self.assertEqual(usage, TokenUsage(150, 50))
+
+    def test_triage_records_usage_only_when_tokens_were_spent(self):
+        settings = mock.Mock(spec=Settings, llm_model="m")
+        with mock.patch.object(triage.llm, "ask", return_value=(None, TokenUsage(120, 30))), \
+             mock.patch.object(triage.store, "record_llm_usage") as record:
+            triage.triage(settings, make_pr(7))
+            record.assert_called_once_with("m", 7, TokenUsage(120, 30))
+        with mock.patch.object(triage.llm, "ask", return_value=(None, TokenUsage())), \
+             mock.patch.object(triage.store, "record_llm_usage") as record:
+            triage.triage(settings, make_pr(7))
+            record.assert_not_called()
 
 
 class ReminderTest(unittest.TestCase):

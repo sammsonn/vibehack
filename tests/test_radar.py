@@ -4,7 +4,10 @@ from collections import Counter
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from radar import calendar_api, llm, ranking, rules, slack_ui, stats
+import tempfile
+from pathlib import Path
+
+from radar import calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store
 from radar.config import Member, Settings, Team
 from radar.models import PR, Candidate, Suggestion, Triage
 
@@ -168,6 +171,47 @@ class StatsTest(unittest.TestCase):
         text = stats.render(st, "o/r", 30)
         self.assertIn("With Radar: *2h 00m* median (n=1)", text)
         self.assertIn("3 suggested · 2 approved (1 handoff, 1 review block) · 1 kept", text)
+
+
+class ReminderTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(store, "DB_PATH", Path(tempfile.mkdtemp()) / "t.db")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        store.init()
+        self.settings = mock.Mock(spec=Settings)
+        self.settings.team = TEAM
+        reviewer = Candidate("cone", "Cone", True, 0, 0)
+        self.sgs = [Suggestion(make_pr(1), LOW, "handoff", "why", reviewer, None, at(19)),
+                    Suggestion(make_pr(2), LOW, "handoff", "why", reviewer, None, at(19))]
+        with mock.patch.object(store, "_now", return_value=at(16, 50).isoformat()):
+            self.card = store.create_card("precall", "h", self.sgs)
+        store.set_card_message(self.card, "D1", "123.4")
+
+    def due(self, now, waiting=(1, 2)):
+        with mock.patch.object(reminders.github_api, "live_repo"), \
+             mock.patch.object(reminders.github_api, "still_waiting_on", side_effect=lambda r, n, l: n in waiting or None):
+            return reminders.due(self.settings, now)
+
+    def test_remind_at(self):
+        self.assertEqual(reminders.remind_at(at(16, 50), at(19)), at(19))
+        self.assertEqual(reminders.remind_at(at(16, 50), None), at(17, 20))
+
+    def test_not_due_during_calls(self):
+        self.assertEqual(self.due(at(18, 30)), [])
+
+    def test_due_once_after_calls_and_skips_reviewed_prs(self):
+        result = self.due(at(19, 5), waiting=(2,))
+        self.assertEqual([(cid, [sg.pr.number for sg in p]) for cid, p in result], [(self.card, [2])])
+        statuses = {r["pr_number"]: r["status"] for r in store.card_suggestions(self.card)}
+        self.assertEqual(statuses, {1: "stale", 2: "pending"})
+        self.assertEqual(self.due(at(19, 10)), [])
+
+    def test_no_reminder_once_everything_is_decided(self):
+        for row in store.card_suggestions(self.card):
+            store.claim(row["id"], "U1")
+            store.finish(row["id"], "kept")
+        self.assertEqual(self.due(at(19, 5)), [])
 
 
 if __name__ == "__main__":

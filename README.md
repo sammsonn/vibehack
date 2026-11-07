@@ -27,6 +27,7 @@ cp team.example.json team.json       # lead + teammates (GitHub login, Google/Sl
 .venv/bin/python -m radar sweep --at 16:50           # post a card now, as if it were 16:50 (demo)
 .venv/bin/python -m radar sweep --at 16:50 --dry-run # print suggestions, post nothing
 .venv/bin/python -m radar stats --days 30            # the number: time to first review, with vs without Radar
+.venv/bin/python -m radar remind --at 19:05          # send due reminders for unclicked cards now (demo)
 .venv/bin/python -m unittest discover tests          # unit tests
 ```
 
@@ -38,5 +39,6 @@ review by someone other than the author, bots excluded. "With Radar" counts PRs 
 handoff or review block before that first review; all other PRs count as "without Radar".
 
 Automatic triggers (every `POLL_MINUTES`): a card before each of the lead's calendar events (`PRECALL_MINUTES`), and
-for PRs waiting longer than `STALE_HOURS` while the lead is in a meeting. Every card, suggestion and decision is
+for PRs waiting longer than `STALE_HOURS` while the lead is in a meeting. When the lead's calls are over and a card
+is still unclicked, Radar replies once in the card's thread (PRs reviewed in the meantime are skipped). Every card, suggestion and decision is
 logged in `radar.db` (SQLite).

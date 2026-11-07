@@ -22,8 +22,8 @@ def _handoff_comment(s: Settings, sg: Suggestion, tz: dt.tzinfo) -> str:
     )
 
 
-def _block_comment(s: Settings, sg: Suggestion, tz: dt.tzinfo) -> str:
-    start, end = (t.astimezone(tz) for t in sg.slot)
+def _block_comment(s: Settings, sg: Suggestion, start: dt.datetime, end: dt.datetime, tz: dt.tzinfo) -> str:
+    start, end = start.astimezone(tz), end.astimezone(tz)
     return (
         f"🛰️ **Review Radar**: @{s.team.lead.github} reserved **{start:%H:%M}–{end:%H:%M}** ({start:%a %d %b}) "
         f"to review this.\n\n"
@@ -45,9 +45,17 @@ def _approve(s: Settings, sid: int, sg: Suggestion) -> None:
         store.finish(sid, "handed_off", f"Handed off to {sg.reviewer.name}")
     elif sg.slot:
         start, end = sg.slot
+        now = dt.datetime.now(dt.timezone.utc)
+        if start < now:  # approved late (e.g. after a reminder): take the next free slot instead
+            blocks = calendar_api.busy_blocks([lead.email], now, now + dt.timedelta(days=3))[lead.email]
+            slot = calendar_api.first_free_slot(blocks, now, int((end - start).total_seconds() // 60), tz)
+            if slot is None:
+                store.finish(sid, "failed", "no free slot left in working hours")
+                return
+            start, end = slot
         description = f"{sg.pr.url}\n\n{sg.triage.summary}\n\nRisk: {sg.triage.risk} ({sg.triage.risk_reason})\nLook first: {sg.triage.look_first}"
         link = calendar_api.create_event(lead.email, start, end, f"🔍 Review PR #{sg.pr.number}: {sg.pr.title}", description)
-        pr.create_issue_comment(_block_comment(s, sg, tz))
+        pr.create_issue_comment(_block_comment(s, sg, start, end, tz))
         label = f"Review block {start.astimezone(tz):%H:%M}–{end.astimezone(tz):%H:%M} added"
         store.finish(sid, "blocked", f"<{link}|{label}>" if link else label)
     else:

@@ -130,3 +130,26 @@ def refresh_card(client: WebClient, s: Settings, card_id: int) -> None:
         return
     text, blocks = render(card, store.card_suggestions(card_id), calendar_api.timezone_of(s.team.lead.email))
     client.chat_update(channel=card["channel"], ts=card["ts"], text=text, blocks=blocks)
+
+
+def post_reminder(client: WebClient, s: Settings, card_id: int, pending: list[Suggestion],
+                  now: dt.datetime | None = None) -> None:
+    """Refreshes the card, then nudges in its thread (also shown in the DM) if anything is still unclicked."""
+    refresh_card(client, s, card_id)
+    if not pending:
+        return
+    card = store.card(card_id)
+    now = now or dt.datetime.now(dt.timezone.utc)
+    oldest = min(pending, key=lambda sg: sg.pr.waiting_since)
+    n = len(pending)
+    link = client.chat_getPermalink(channel=card["channel"], message_ts=card["ts"])["permalink"]
+    client.chat_postMessage(
+        channel=card["channel"],
+        thread_ts=card["ts"],
+        reply_broadcast=True,
+        text=(
+            f"⏰ *Your calls are over.* {n} PR{'s are' if n != 1 else ' is'} still waiting on you "
+            f"(longest: #{oldest.pr.number}, {_duration(now - oldest.pr.waiting_since)}). "
+            f"Nothing has happened yet: <{link}|approve on the card>."
+        ),
+    )

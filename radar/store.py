@@ -135,3 +135,12 @@ def fire_once(key: str) -> bool:
 def all_suggestions() -> list[sqlite3.Row]:
     with connect() as c:
         return c.execute("SELECT * FROM suggestions ORDER BY id").fetchall()
+
+
+def pending_by_card() -> dict[int, list[sqlite3.Row]]:
+    with connect() as c:
+        rows = c.execute("SELECT * FROM suggestions WHERE status = 'pending' ORDER BY card_id, id").fetchall()
+    result: dict[int, list[sqlite3.Row]] = {}
+    for row in rows:
+        result.setdefault(row["card_id"], []).append(row)
+    return result

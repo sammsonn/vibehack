@@ -84,11 +84,11 @@ def create_app(s: Settings) -> App:
     return app
 
 
-def _scheduler(s: Settings, post, stop: threading.Event) -> None:
+def _scheduler(s: Settings, post, remind, stop: threading.Event) -> None:
     interval = s.poll_minutes * 60
     while True:
         try:
-            sweep.tick(s, post)
+            sweep.tick(s, post, remind=remind)
         except Exception:
             log.exception("automatic check failed")
         if stop.wait(interval):
@@ -100,7 +100,8 @@ def run(s: Settings) -> None:
     app = create_app(s)
     stop = threading.Event()
     post = lambda card_id: slack_ui.post_card(app.client, s, card_id)  # noqa: E731
-    threading.Thread(target=_scheduler, args=(s, post, stop), daemon=True, name="radar-scheduler").start()
+    remind = lambda card_id, pending: slack_ui.post_reminder(app.client, s, card_id, pending)  # noqa: E731
+    threading.Thread(target=_scheduler, args=(s, post, remind, stop), daemon=True, name="radar-scheduler").start()
     log.info("Review Radar running: checking every %d min, pre-call window %d min", s.poll_minutes, s.precall_minutes)
     try:
         SocketModeHandler(app, s.slack_app_token).start()

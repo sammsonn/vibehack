@@ -4,7 +4,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from radar import calendar_api, github_api, llm, ranking, store
+from radar import calendar_api, github_api, llm, ranking, reminders, store
 from radar.config import Settings
 from radar.models import Suggestion
 
@@ -96,15 +96,20 @@ def run(s: Settings, post, now: dt.datetime | None = None, trigger: str = "manua
     return card_id
 
 
-def tick(s: Settings, post, now: dt.datetime | None = None) -> int | None:
-    """Automatic check: a sweep right before each of the lead's calls, plus stale PRs while the lead is busy."""
+def tick(s: Settings, post, now: dt.datetime | None = None, remind=None) -> int | None:
+    """Automatic check: a sweep right before each of the lead's calls, stale PRs while the lead is busy, and
+    once the lead is free again, one reminder per card that is still unclicked (remind(card_id, suggestions))."""
     now = now or dt.datetime.now(dt.timezone.utc)
     lead = s.team.lead.email
+    lead_blocks = calendar_api.busy_blocks([lead], now, now + dt.timedelta(minutes=1))[lead]
+    busy_now = calendar_api.busy_until(lead_blocks, now) is not None
+    if remind and not busy_now:
+        for card_id, pending in reminders.due(s, now):
+            remind(card_id, pending)
     window = dt.timedelta(minutes=s.precall_minutes)
     upcoming = [e for e in calendar_api.events_between(lead, now, now + window) if now < e["start"] <= now + window]
     if upcoming and store.fire_once(f"precall:{upcoming[0]['id']}:{upcoming[0]['start'].isoformat()}"):
         return run(s, post, now, trigger="precall", auto=True)
-    lead_blocks = calendar_api.busy_blocks([lead], now, now + dt.timedelta(minutes=1))[lead]
-    if calendar_api.busy_until(lead_blocks, now):
+    if busy_now:
         return run(s, post, now, trigger="stale", auto=True, min_wait=dt.timedelta(hours=s.stale_hours))
     return None

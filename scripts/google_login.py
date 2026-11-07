@@ -1,13 +1,13 @@
-"""One-time Google login for the bot account. Saves token.json and checks access to the shared calendars."""
+"""One-time Google login for the bot account. Run from vibehack/: python -m scripts.google_login"""
 import datetime as dt
-import os
 from pathlib import Path
 
-from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+
+from radar import config
 
 ROOT = Path(__file__).resolve().parent.parent
 SCOPES = [
@@ -31,9 +31,9 @@ def get_credentials() -> Credentials:
 
 
 if __name__ == "__main__":
-    load_dotenv(ROOT / ".env")
-    lead = os.environ["LEAD_CALENDAR"]
-    team = [c.strip() for c in os.environ["TEAM_CALENDARS"].split(",") if c.strip()]
+    team = config.load().team
+    lead = team.lead.email
+    others = [m.email for m in team.teammates]
 
     service = build("calendar", "v3", credentials=get_credentials())
     primary = service.calendars().get(calendarId="primary").execute()
@@ -55,7 +55,7 @@ if __name__ == "__main__":
     fb = service.freebusy().query(body={
         "timeMin": now.isoformat(),
         "timeMax": end.isoformat(),
-        "items": [{"id": c} for c in team],
+        "items": [{"id": c} for c in others],
     }).execute()["calendars"]
     for cal, info in fb.items():
         status = f"ERROR {info['errors'][0]['reason']}" if info.get("errors") else f"{len(info['busy'])} busy blocks"

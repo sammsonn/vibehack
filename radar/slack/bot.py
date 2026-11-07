@@ -12,7 +12,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from radar import runtime
 from radar.config import Settings
 from radar.integrations import google_calendar
-from radar.services import actions, approval_gate, stats, sweep
+from radar.services import actions, approval_gate, review_alerts, stats, sweep
 from radar.slack import messages
 from radar.storage import store
 
@@ -119,9 +119,11 @@ def _run(s: Settings) -> None:
     post = lambda card_id: messages.post_card(app.client, s, card_id)  # noqa: E731
     remind = lambda card_id, pending: messages.post_reminder(app.client, s, card_id, pending)  # noqa: E731
     send_digest = lambda stretch, lines: messages.post_digest(app.client, s, stretch, lines)  # noqa: E731
+    alert = lambda sg, login, state, unblocked: messages.post_review_alert(app.client, s, sg, login, state, unblocked)  # noqa: E731
+    on_reviews = lambda pr, reviews: review_alerts.check(s, pr, reviews, alert)  # noqa: E731
     threading.Thread(target=_scheduler, args=(s, post, remind, send_digest, stop), daemon=True,
                      name="radar-scheduler").start()
-    threading.Thread(target=approval_gate.loop, args=(s, stop), daemon=True, name="radar-gate").start()
+    threading.Thread(target=approval_gate.loop, args=(s, stop, on_reviews), daemon=True, name="radar-gate").start()
     log.info("Review Radar running: checking every %d min, pre-call window %d min", s.poll_minutes, s.precall_minutes)
     handler = SocketModeHandler(app, s.slack_app_token)
     try:

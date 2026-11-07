@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import tempfile
 from pathlib import Path
 
-from radar import calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store
+from radar import calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store, sweep
 from radar.config import Member, Settings, Team
 from radar.models import PR, Candidate, Suggestion, Triage
 
@@ -212,6 +212,31 @@ class ReminderTest(unittest.TestCase):
             store.claim(row["id"], "U1")
             store.finish(row["id"], "kept")
         self.assertEqual(self.due(at(19, 5)), [])
+
+
+class LeadContextTest(unittest.TestCase):
+    def ctx(self, events, now):
+        s = mock.Mock(spec=Settings)
+        s.team, s.precall_minutes = TEAM, 10
+        blocks = [(e["start"], e["end"]) for e in events]
+        with mock.patch.object(sweep.calendar_api, "timezone_of", return_value=TZ), \
+             mock.patch.object(sweep.calendar_api, "events_between", return_value=events):
+            return sweep.lead_context(s, now, blocks)
+
+    def event(self, summary, start, end, review_block=False):
+        return {"id": summary, "summary": summary, "start": start, "end": end, "review_block": review_block}
+
+    def test_call_in_progress(self):
+        c = self.ctx([self.event("Sync BCR", at(18), at(19))], at(18, 30))
+        self.assertEqual((c.header, c.busy_until), ("📅 You're in *Sync BCR* until 19:00", at(19)))
+
+    def test_review_block_is_not_a_call(self):
+        c = self.ctx([self.event("🔍 Review PR #3: x", at(19), at(19, 30), True)], at(19, 10))
+        self.assertEqual(c.header, "🔍 You're in a review block until 19:30")
+
+    def test_upcoming_review_block_is_not_a_precall(self):
+        c = self.ctx([self.event("🔍 Review PR #3: x", at(19), at(19, 30), True)], at(18, 55))
+        self.assertEqual((c.header, c.upcoming_event), ("No calls right now", None))
 
 
 if __name__ == "__main__":

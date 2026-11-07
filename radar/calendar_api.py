@@ -10,6 +10,8 @@ from googleapiclient.discovery import build
 from radar.google_auth import get_credentials
 
 Block = tuple[dt.datetime, dt.datetime]
+REVIEW_BLOCK_TAG = {"radar": "review-block"}
+REVIEW_BLOCK_PREFIX = "🔍 Review PR"
 MERGE_GAP = dt.timedelta(minutes=5)
 WORK_START_HOUR = 9
 WORK_END_HOUR = 20
@@ -90,6 +92,9 @@ def events_between(calendar_id: str, start: dt.datetime, end: dt.datetime) -> li
             "summary": e.get("summary", "(no title)"),
             "start": _ts(e["start"]["dateTime"]),
             "end": _ts(e["end"]["dateTime"]),
+            # Radar's own review blocks: busy time, but not a call (older blocks have no tag, only the title)
+            "review_block": e.get("extendedProperties", {}).get("private", {}).get("radar") == "review-block"
+            or e.get("summary", "").startswith(REVIEW_BLOCK_PREFIX),
         })
     return events
 
@@ -111,12 +116,13 @@ def busy_blocks(emails: list[str], start: dt.datetime, end: dt.datetime) -> dict
     return blocks
 
 
-def create_event(calendar_id: str, start: dt.datetime, end: dt.datetime, summary: str, description: str) -> str:
+def create_review_block(calendar_id: str, start: dt.datetime, end: dt.datetime, summary: str, description: str) -> str:
     event = service().events().insert(calendarId=calendar_id, body={
         "summary": summary,
         "description": description,
         "start": {"dateTime": start.isoformat()},
         "end": {"dateTime": end.isoformat()},
         "reminders": {"useDefault": False, "overrides": [{"method": "popup", "minutes": 5}]},
+        "extendedProperties": {"private": REVIEW_BLOCK_TAG},
     }).execute()
     return event.get("htmlLink", "")

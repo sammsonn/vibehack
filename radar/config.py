@@ -82,7 +82,7 @@ def load() -> Settings:
         github_app_id=int(_require("GITHUB_APP_ID")),
         github_app_key=key_path.read_text(encoding="utf-8"),
         live_repo=_require("LIVE_REPO"),
-        github_token=os.getenv("GITHUB_TOKEN", "").strip() or None,
+        github_token=(os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_TOKEN_1") or "").strip() or None,
         before_repo=os.getenv("BEFORE_REPO", "").strip() or None,
         llm_base_url=_require("LLM_BASE_URL"),
         llm_api_key=_require("LLM_API_KEY"),

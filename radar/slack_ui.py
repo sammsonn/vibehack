@@ -148,7 +148,7 @@ def post_reminder(client: WebClient, s: Settings, card_id: int, pending: list[Su
         thread_ts=card["ts"],
         reply_broadcast=True,
         text=(
-            f"⏰ *Your calls are over.* {n} PR{'s are' if n != 1 else ' is'} still waiting on you "
+            f"⏰ *You're free again.* {n} PR{'s are' if n != 1 else ' is'} still waiting on you "
             f"(longest: #{oldest.pr.number}, {_duration(now - oldest.pr.waiting_since)}). "
             f"Nothing has happened yet: <{link}|approve on the card>."
         ),

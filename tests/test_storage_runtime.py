@@ -51,6 +51,19 @@ class MigrationTest(unittest.TestCase):
                 self.assertEqual(c.execute("PRAGMA journal_mode").fetchone()[0], "wal")
 
 
+class ReadOnlyDatabaseTest(unittest.TestCase):
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can write read-only files")
+    def test_readonly_database_gives_a_clear_error(self):
+        db = Path(tempfile.mkdtemp()) / "ro.db"
+        sqlite3.connect(db).close()
+        db.chmod(0o444)
+        self.addCleanup(db.chmod, 0o644)
+        with mock.patch.object(store, "DB_PATH", db):
+            with self.assertRaises(store.NotWritable) as e:
+                store.init()
+        self.assertIn("read-only", str(e.exception))
+
+
 class LlmUsageStoreTest(unittest.TestCase):
     def test_sums_usage_since(self):
         import datetime as dt

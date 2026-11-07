@@ -7,4 +7,11 @@ if [ -n "$GOOGLE_TOKEN_PATH" ] && [ ! -f "$GOOGLE_TOKEN_PATH" ] && [ -f /secrets
     cp /secrets/token.json "$GOOGLE_TOKEN_PATH"
 fi
 
+# Started as root only to repair ownership of the data volume: files copied in with `docker compose cp`
+# (e.g. an existing radar.db) keep the host's uid and would be read-only for Radar. Then drop privileges.
+if [ "$(id -u)" = "0" ]; then
+    chown -R radar:radar /data
+    exec setpriv --reuid=radar --regid=radar --init-groups "$@"
+fi
+
 exec "$@"

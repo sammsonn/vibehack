@@ -69,7 +69,7 @@ def main() -> None:
     if args.command == "run":
         try:
             bot.run(s)
-        except runtime.AlreadyRunning as e:
+        except (runtime.AlreadyRunning, store.NotWritable) as e:
             sys.exit(str(e))
         return
     if args.command == "stats":

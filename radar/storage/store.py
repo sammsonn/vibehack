@@ -1,5 +1,6 @@
 """SQLite log of every card, suggestion and decision. Statuses: pending, working, handed_off, blocked, kept, snoozed, stale, failed, superseded."""
 import datetime as dt
+import os
 import sqlite3
 from contextlib import contextmanager
 
@@ -92,8 +93,24 @@ def schema_version() -> int:
         return c.execute("PRAGMA user_version").fetchone()[0]
 
 
+class NotWritable(RuntimeError):
+    pass
+
+
 def init() -> None:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        _migrate()
+    except sqlite3.OperationalError as e:
+        if "readonly" not in str(e):
+            raise
+        raise NotWritable(
+            f"{DB_PATH} is read-only for this process (uid {getattr(os, 'getuid', lambda: '?')()}). Make the file and its folder writable, "
+            f"e.g. chown them to this user; in Docker the entrypoint does this for /data."
+        ) from e
+
+
+def _migrate() -> None:
     with connect() as c:
         # WAL lets the scheduler, Slack handlers and CLI commands read while another one writes.
         c.execute("PRAGMA journal_mode=WAL")

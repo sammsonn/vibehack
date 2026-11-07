@@ -21,17 +21,17 @@ COPY radar ./radar
 COPY scripts ./scripts
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
+# No USER line: the entrypoint starts as root only to fix /data ownership, then runs Radar as this user.
 RUN useradd --system --uid 10001 --home-dir /app radar \
     && mkdir -p /data \
     && chown radar:radar /data \
     && chmod +x /usr/local/bin/docker-entrypoint.sh
-USER radar
 
 # radar.db, the Google token (refreshed in place), the instance lock and the heartbeat.
 VOLUME ["/data"]
 
 HEALTHCHECK --interval=60s --timeout=15s --start-period=90s --retries=3 \
-    CMD ["python", "-m", "radar", "health"]
+    CMD ["setpriv", "--reuid=radar", "--regid=radar", "--init-groups", "python", "-m", "radar", "health"]
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "-m", "radar", "run"]

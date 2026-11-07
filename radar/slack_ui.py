@@ -120,7 +120,7 @@ def post_card(client: WebClient, s: Settings, card_id: int) -> None:
     tz = calendar_api.timezone_of(lead)
     text, blocks = render(store.card(card_id), store.card_suggestions(card_id), tz)
     channel = client.conversations_open(users=slack_id(client, lead))["channel"]["id"]
-    msg = client.chat_postMessage(channel=channel, text=text, blocks=blocks)
+    msg = client.chat_postMessage(channel=channel, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False)
     store.set_card_message(card_id, msg["channel"], msg["ts"])
 
 
@@ -147,6 +147,8 @@ def post_reminder(client: WebClient, s: Settings, card_id: int, pending: list[Su
         channel=card["channel"],
         thread_ts=card["ts"],
         reply_broadcast=True,
+        unfurl_links=False,
+        unfurl_media=False,
         text=(
             f"⏰ *You're free again.* {n} PR{'s are' if n != 1 else ' is'} still waiting on you "
             f"(longest: #{oldest.pr.number}, {_duration(now - oldest.pr.waiting_since)}). "

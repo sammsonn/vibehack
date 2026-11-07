@@ -6,7 +6,7 @@ from openai import OpenAI
 from slack_sdk import WebClient
 
 from radar import config, github_api
-from scripts.google_login import get_credentials
+from radar.google_auth import get_credentials
 
 
 def main() -> None:

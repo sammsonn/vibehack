@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import tempfile
 from pathlib import Path
 
-from radar import approval_gate, calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store
+from radar import approval_gate, calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store, sweep
 from radar.config import Member, Settings, Team
 from radar.models import PR, Candidate, Suggestion, Triage
 
@@ -30,6 +30,12 @@ def make_pr(number=1, author="andrei", files=("README.md",), changed=2) -> PR:
 
 LOW = Triage("Fixes a typo.", "low", "Docs only", "README.md")
 HIGH = Triage("Adds retries.", "high", "Touches payments", "payments/webhook.py")
+
+
+class TeamTest(unittest.TestCase):
+    def test_display_name(self):
+        self.assertEqual(TEAM.display_name("ANDREI"), "Andrei")
+        self.assertEqual(TEAM.display_name("dependabot[bot]"), "dependabot[bot]")
 
 
 class RulesTest(unittest.TestCase):
@@ -135,10 +141,13 @@ class RenderTest(unittest.TestCase):
         card = {"id": 7, "created_at": NOW.isoformat(), "header": "📅 *Demo* starts in 10 min"}
         rows = [{"id": i, "payload": sg.to_json(), "status": "pending", "decided_by": None, "decided_at": None,
                  "snoozed_until": None, "result": None} for i, sg in enumerate([block, handoff], start=1)]
-        _, blocks = slack_ui.render(card, rows, TZ)
+        _, blocks = slack_ui.render(card, rows, TZ, TEAM)
         ids = [e["action_id"] for b in blocks if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("radar:approve:1", ids)
         self.assertIn("radar:all:7", ids)
+        texts = [b["text"]["text"] for b in blocks if b["type"] == "section"]
+        self.assertTrue(any("(Andrei, " in t for t in texts))
+        self.assertFalse(any("@andrei" in t for t in texts))
         labels = [e["text"]["text"] for b in blocks if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("📅 Block 19:00–19:30 to review", labels)
         self.assertIn("✅ Hand off to Cone", labels)
@@ -240,6 +249,31 @@ class ApprovalGateTest(unittest.TestCase):
     def test_evaluate(self):
         self.assertEqual(approval_gate.evaluate({"lead"}, {"cone"}), ("pending", "Needs approval from @lead"))
         self.assertEqual(approval_gate.evaluate({"lead", "cone"}, {"cone"}), ("success", "Approved by @cone"))
+
+
+class LeadContextTest(unittest.TestCase):
+    def ctx(self, events, now):
+        s = mock.Mock(spec=Settings)
+        s.team, s.precall_minutes = TEAM, 10
+        blocks = [(e["start"], e["end"]) for e in events]
+        with mock.patch.object(sweep.calendar_api, "timezone_of", return_value=TZ), \
+             mock.patch.object(sweep.calendar_api, "events_between", return_value=events):
+            return sweep.lead_context(s, now, blocks)
+
+    def event(self, summary, start, end, review_block=False):
+        return {"id": summary, "summary": summary, "start": start, "end": end, "review_block": review_block}
+
+    def test_call_in_progress(self):
+        c = self.ctx([self.event("Sync BCR", at(18), at(19))], at(18, 30))
+        self.assertEqual((c.header, c.busy_until), ("📅 You're in *Sync BCR* until 19:00", at(19)))
+
+    def test_review_block_is_not_a_call(self):
+        c = self.ctx([self.event("🔍 Review PR #3: x", at(19), at(19, 30), True)], at(19, 10))
+        self.assertEqual(c.header, "🔍 You're in a review block until 19:30")
+
+    def test_upcoming_review_block_is_not_a_precall(self):
+        c = self.ctx([self.event("🔍 Review PR #3: x", at(19), at(19, 30), True)], at(18, 55))
+        self.assertEqual((c.header, c.upcoming_event), ("No calls right now", None))
 
 
 if __name__ == "__main__":

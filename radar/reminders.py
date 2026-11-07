@@ -1,4 +1,4 @@
-"""One nudge per card: when the lead's calls are over and Radar's suggestions are still unclicked."""
+"""One nudge per card: when the lead is free again and Radar's suggestions are still unclicked."""
 import datetime as dt
 import logging
 

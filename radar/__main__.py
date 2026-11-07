@@ -16,10 +16,10 @@ from slack_sdk import WebClient
 from radar import app, approval_gate, calendar_api, config, reminders, slack_ui, stats, store, sweep
 
 
-def _print(ctx: sweep.LeadContext, suggestions, tz: dt.tzinfo) -> None:
+def _print(ctx: sweep.LeadContext, suggestions, tz: dt.tzinfo, team: config.Team) -> None:
     print(ctx.header)
     for sg in suggestions:
-        print(f"\n#{sg.pr.number} {sg.pr.title} (@{sg.pr.author}) [{sg.triage.risk}] {sg.triage.risk_reason}")
+        print(f"\n#{sg.pr.number} {sg.pr.title} ({team.display_name(sg.pr.author)}) [{sg.triage.risk}] {sg.triage.risk_reason}")
         print(f"  summary: {sg.triage.summary}")
         print(f"  look first: {sg.triage.look_first}")
         label = slack_ui.primary_label(sg, tz) or "(no action available)"
@@ -60,7 +60,7 @@ def main() -> None:
     now = app.parse_at(args.at, tz) or dt.datetime.now(dt.timezone.utc)
     if args.dry_run:
         ctx, suggestions = sweep.build(s, now)
-        _print(ctx, suggestions, tz)
+        _print(ctx, suggestions, tz, s.team)
         return
     store.init()
     client = WebClient(token=s.slack_bot_token)

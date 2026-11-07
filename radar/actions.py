@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 def _handoff_comment(s: Settings, sg: Suggestion, tz: dt.tzinfo) -> str:
     lead = s.team.lead
-    busy = f"is in calls until {sg.lead_busy_until.astimezone(tz):%H:%M}" if sg.lead_busy_until else "is busy"
+    busy = f"is busy until {sg.lead_busy_until.astimezone(tz):%H:%M}" if sg.lead_busy_until else "is busy"
     return (
         f"🛰️ **Review Radar**: @{lead.github} {busy} and handed this review to @{sg.reviewer.github}.\n\n"
         f"**Summary:** {sg.triage.summary}\n"
@@ -58,7 +58,7 @@ def _approve(s: Settings, sid: int, sg: Suggestion) -> None:
                 return
             start, end = slot
         description = f"{sg.pr.url}\n\n{sg.triage.summary}\n\nRisk: {sg.triage.risk} ({sg.triage.risk_reason})\nLook first: {sg.triage.look_first}"
-        link = calendar_api.create_event(lead.email, start, end, f"🔍 Review PR #{sg.pr.number}: {sg.pr.title}", description)
+        link = calendar_api.create_review_block(lead.email, start, end, f"{calendar_api.REVIEW_BLOCK_PREFIX} #{sg.pr.number}: {sg.pr.title}", description)
         pr.create_issue_comment(_block_comment(s, sg, start, end, tz))
         label = f"Review block {start.astimezone(tz):%H:%M}–{end.astimezone(tz):%H:%M} added"
         store.finish(sid, "blocked", f"<{link}|{label}>" if link else label)

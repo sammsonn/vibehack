@@ -29,11 +29,15 @@ def lead_context(s: Settings, now: dt.datetime, lead_blocks: list[calendar_api.B
     tz = calendar_api.timezone_of(lead)
     window = dt.timedelta(minutes=s.precall_minutes)
     events = calendar_api.events_between(lead, now, now + window)
-    current = next((e for e in events if e["start"] <= now < e["end"]), None)
-    upcoming = next((e for e in events if now < e["start"] <= now + window), None)
+    current = [e for e in events if e["start"] <= now < e["end"]]
+    current_call = next((e for e in current if not e["review_block"]), None)
+    upcoming = next((e for e in events if now < e["start"] <= now + window and not e["review_block"]), None)
+    if current_call:
+        until = calendar_api.busy_until(lead_blocks, now) or current_call["end"]
+        return LeadContext(f"📅 You're in *{current_call['summary']}* until {fmt_time(until, tz)}", until, None)
     if current:
-        until = calendar_api.busy_until(lead_blocks, now) or current["end"]
-        return LeadContext(f"📅 You're in *{current['summary']}* until {fmt_time(until, tz)}", until, None)
+        until = calendar_api.busy_until(lead_blocks, now) or current[0]["end"]
+        return LeadContext(f"🔍 You're in a review block until {fmt_time(until, tz)}", until, None)
     if upcoming:
         until = calendar_api.busy_until(lead_blocks, upcoming["start"]) or upcoming["end"]
         minutes = max(1, round((upcoming["start"] - now).total_seconds() / 60))
@@ -55,6 +59,7 @@ def build(s: Settings, now: dt.datetime, auto: bool = False,
         prs = [p for p in prs if now - p.waiting_since >= min_wait]
     if auto:
         prs = [p for p in prs if not store.recently_handled(p.number, p.head_sha, now)]
+    prs.sort(key=lambda p: p.waiting_since)  # longest-waiting PR gets the earliest review slot
 
     horizon = now + dt.timedelta(days=3)
     busy = calendar_api.busy_blocks([m.email for m in team.members], now, horizon)
@@ -107,7 +112,8 @@ def tick(s: Settings, post, now: dt.datetime | None = None, remind=None) -> int 
         for card_id, pending in reminders.due(s, now):
             remind(card_id, pending)
     window = dt.timedelta(minutes=s.precall_minutes)
-    upcoming = [e for e in calendar_api.events_between(lead, now, now + window) if now < e["start"] <= now + window]
+    upcoming = [e for e in calendar_api.events_between(lead, now, now + window)
+                if now < e["start"] <= now + window and not e["review_block"]]
     if upcoming and store.fire_once(f"precall:{upcoming[0]['id']}:{upcoming[0]['start'].isoformat()}"):
         return run(s, post, now, trigger="precall", auto=True)
     if busy_now:

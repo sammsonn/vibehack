@@ -9,8 +9,8 @@ from radar.config import Member, Settings, Team
 from radar.core import ranking
 from radar.core.models import Candidate, Suggestion
 from radar.integrations import llm
-from radar.services import actions, approval_gate, reminders, sweep, triage
-from radar.slack import blocks
+from radar.services import actions, approval_gate, digest, reminders, sweep, triage
+from radar.slack import blocks, messages
 from radar.storage import store
 from tests.helpers import HIGH, LOW, NOW, TEAM, TZ, ANDREI, CONE, LEAD, at, make_pr
 
@@ -174,6 +174,70 @@ class ReviewerPickTest(unittest.TestCase):
         self.assertEqual((row["status"], row["result"]), ("handed_off", "Handed off to Cone (your pick)"))
         # The merge gate must follow the lead's pick, also on a high-risk PR Radar had no reviewer for.
         self.assertEqual(approval_gate._handed_off_to(self.sg.pr.number), {"cone"})
+
+    def _pick(self, on_handoff):
+        with mock.patch.object(actions.google_calendar, "timezone_of", return_value=TZ), \
+             mock.patch.object(actions.github, "live_repo"), \
+             mock.patch.object(actions.github, "still_waiting_on"), \
+             mock.patch.object(actions.github, "hand_off"):
+            return actions.execute(self.settings, self.sid, "pick", "U1", reviewer="cone", on_handoff=on_handoff)
+
+    def test_reviewer_is_notified_after_handoff(self):
+        notify = mock.Mock()
+        self._pick(notify)
+        notify.assert_called_once_with(self.sg, "cone")
+
+    def test_failed_notification_does_not_undo_handoff(self):
+        self._pick(mock.Mock(side_effect=RuntimeError("slack down")))
+        self.assertEqual(store.suggestion(self.sid)["status"], "handed_off")
+
+
+class DigestTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(store, "DB_PATH", Path(tempfile.mkdtemp()) / "t.db")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        store.init()
+
+    def test_last_stretch_merges_back_to_back_calls(self):
+        blocks_ = [(at(17), at(18)), (at(18), at(18, 30)), (at(19), at(20))]
+        self.assertEqual(digest.last_stretch(blocks_, at(18, 35)), (at(17), at(18, 30)))
+        self.assertIsNone(digest.last_stretch(blocks_, at(16)))
+
+    def test_only_actions_for_that_stretch(self):
+        reviewer = Candidate("cone", "Cone", True, 0, 0)
+        during = Suggestion(make_pr(1), LOW, "handoff", "w", reviewer, None, at(18, 30))
+        earlier = Suggestion(make_pr(2), LOW, "handoff", "w", reviewer, None, at(12))
+        undecided = Suggestion(make_pr(3), HIGH, "block", "w", None, (at(18, 30), at(19)), at(18, 30))
+        card = store.create_card("precall", "h", [during, earlier, undecided])
+        for row in store.card_suggestions(card)[:2]:
+            store.claim(row["id"], "U1")
+            store.finish(row["id"], "handed_off", handed_to="cone")
+        acted = digest.acted_during(store.all_suggestions(), at(17), at(18, 30))
+        self.assertEqual([sg.pr.number for _, sg in acted], [1])
+
+    def test_review_outcome_uses_latest_review_after_handoff(self):
+        reviews = [review("cone", "COMMENTED", minute=0), review("cone", "APPROVED", minute=5),
+                   review("andrei", "APPROVED", minute=6)]
+        self.assertEqual(digest.review_outcome(reviews, "cone", at(11)), "APPROVED")
+        self.assertIsNone(digest.review_outcome(reviews, "cone", at(13)))
+
+    def test_lines_and_message(self):
+        self.assertEqual(digest.handoff_line("Cone", "APPROVED", False, False), ("✅", "Cone approved it"))
+        self.assertEqual(digest.handoff_line("Ana", None, False, False), ("👀", "Ana is on it (no review yet)"))
+        lines = [digest.Line(1, "Fix typo", "https://x/1", "✅", "Cone approved it")]
+        self.assertEqual(messages.digest_text((at(17), at(18, 30)), lines, TZ),
+                         "☕ *You're out of calls.* While you were busy (17:00–18:30), Radar's handoffs did this:\n"
+                         "✅ <https://x/1|#1 Fix typo>: Cone approved it")
+
+    def test_handoff_dm_text(self):
+        s = mock.Mock(spec=Settings)
+        s.team = TEAM
+        sg = Suggestion(make_pr(1), LOW, "handoff", "w", None, None, at(18, 30))
+        text = messages.handoff_text(s, sg, TZ)
+        self.assertIn("*Samson handed you a review* (busy until 18:30)", text)
+        self.assertIn("*<https://github.com/o/r/pull/1|#1 PR 1>* by Andrei", text)
+        self.assertIn("🟢 Low risk · look first: `README.md`", text)
 
 
 if __name__ == "__main__":

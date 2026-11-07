@@ -5,15 +5,54 @@ from functools import cache
 from slack_sdk import WebClient
 
 from radar.config import Settings
+from radar.core import schedule
 from radar.core.models import Suggestion
 from radar.integrations import google_calendar
+from radar.services.digest import Line
 from radar.slack.blocks import duration, render
 from radar.storage import store
+
+RISK_ICON = {"low": "🟢", "high": "🔴"}
 
 
 @cache
 def slack_id(client: WebClient, email: str) -> str:
     return client.users_lookupByEmail(email=email)["user"]["id"]
+
+
+def _dm(client: WebClient, email: str, text: str) -> None:
+    channel = client.conversations_open(users=slack_id(client, email))["channel"]["id"]
+    client.chat_postMessage(channel=channel, text=text, unfurl_links=False, unfurl_media=False)
+
+
+def handoff_text(s: Settings, sg: Suggestion, tz: dt.tzinfo) -> str:
+    lead = s.team.lead.name
+    busy = f" (busy until {sg.lead_busy_until.astimezone(tz):%H:%M})" if sg.lead_busy_until else ""
+    tr = sg.triage
+    return (
+        f"🛰️ *{lead} handed you a review*{busy}\n"
+        f"*<{sg.pr.url}|#{sg.pr.number} {sg.pr.title}>* by {s.team.display_name(sg.pr.author)}\n"
+        f"{RISK_ICON.get(tr.risk, '')} {tr.risk.capitalize()} risk · look first: `{tr.look_first}`\n"
+        f"> {tr.summary}\n"
+        f"Your approval unblocks the merge: <{sg.pr.url}/files|Review it on GitHub →>"
+    )
+
+
+def notify_reviewer(client: WebClient, s: Settings, sg: Suggestion, reviewer_github: str) -> None:
+    member = s.team.by_github(reviewer_github)
+    if member:
+        _dm(client, member.email, handoff_text(s, sg, google_calendar.timezone_of(s.team.lead.email)))
+
+
+def digest_text(stretch: schedule.Block, lines: list[Line], tz: dt.tzinfo) -> str:
+    start, end = (t.astimezone(tz) for t in stretch)
+    body = "\n".join(f"{ln.icon} <{ln.url}|#{ln.pr_number} {ln.title}>: {ln.text}" for ln in lines)
+    return f"☕ *You're out of calls.* While you were busy ({start:%H:%M}–{end:%H:%M}), Radar's handoffs did this:\n{body}"
+
+
+def post_digest(client: WebClient, s: Settings, stretch: schedule.Block, lines: list[Line]) -> None:
+    lead = s.team.lead.email
+    _dm(client, lead, digest_text(stretch, lines, google_calendar.timezone_of(lead)))
 
 
 def post_card(client: WebClient, s: Settings, card_id: int) -> None:

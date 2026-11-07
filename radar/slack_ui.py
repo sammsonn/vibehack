@@ -5,7 +5,7 @@ from functools import cache
 from slack_sdk import WebClient
 
 from radar import calendar_api, store
-from radar.config import Settings
+from radar.config import Settings, Team
 from radar.models import Suggestion
 
 SNOOZE_HOURS = 2
@@ -73,7 +73,7 @@ def _outcome(row, tz: dt.tzinfo) -> str:
     }.get(status, status)
 
 
-def render(card, rows: list, tz: dt.tzinfo) -> tuple[str, list[dict]]:
+def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]]:
     created = dt.datetime.fromisoformat(card["created_at"])
     n = len(rows)
     text = f"🛰️ Review Radar: {n} PR{'s' if n != 1 else ''} waiting on you"
@@ -89,7 +89,7 @@ def render(card, rows: list, tz: dt.tzinfo) -> tuple[str, list[dict]]:
         look = f" Look first: `{tr.look_first}`" if tr.look_first else ""
         blocks.append({"type": "divider"})
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
-            f"{emoji} *<{pr.url}|#{pr.number} {pr.title}>* (@{pr.author}, {_duration(created - pr.waiting_since)} waiting)\n"
+            f"{emoji} *<{pr.url}|#{pr.number} {pr.title}>* ({team.display_name(pr.author)}, {_duration(created - pr.waiting_since)} waiting)\n"
             f"{tr.summary}\n"
             f"*{tr.risk.capitalize()} risk:* {tr.risk_reason.rstrip('.')}.{look}\n"
             f"{_decision_line(sg, tz)}"
@@ -118,7 +118,7 @@ def render(card, rows: list, tz: dt.tzinfo) -> tuple[str, list[dict]]:
 def post_card(client: WebClient, s: Settings, card_id: int) -> None:
     lead = s.team.lead.email
     tz = calendar_api.timezone_of(lead)
-    text, blocks = render(store.card(card_id), store.card_suggestions(card_id), tz)
+    text, blocks = render(store.card(card_id), store.card_suggestions(card_id), tz, s.team)
     channel = client.conversations_open(users=slack_id(client, lead))["channel"]["id"]
     msg = client.chat_postMessage(channel=channel, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False)
     store.set_card_message(card_id, msg["channel"], msg["ts"])
@@ -128,7 +128,7 @@ def refresh_card(client: WebClient, s: Settings, card_id: int) -> None:
     card = store.card(card_id)
     if not card or not card["ts"]:
         return
-    text, blocks = render(card, store.card_suggestions(card_id), calendar_api.timezone_of(s.team.lead.email))
+    text, blocks = render(card, store.card_suggestions(card_id), calendar_api.timezone_of(s.team.lead.email), s.team)
     client.chat_update(channel=card["channel"], ts=card["ts"], text=text, blocks=blocks)
 
 

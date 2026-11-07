@@ -32,6 +32,12 @@ LOW = Triage("Fixes a typo.", "low", "Docs only", "README.md")
 HIGH = Triage("Adds retries.", "high", "Touches payments", "payments/webhook.py")
 
 
+class TeamTest(unittest.TestCase):
+    def test_display_name(self):
+        self.assertEqual(TEAM.display_name("ANDREI"), "Andrei")
+        self.assertEqual(TEAM.display_name("dependabot[bot]"), "dependabot[bot]")
+
+
 class RulesTest(unittest.TestCase):
     def test_flags_risky_paths(self):
         self.assertEqual(rules.high_risk_reasons(["payments/webhook.py", "migrations/0042.sql"]),
@@ -135,10 +141,13 @@ class RenderTest(unittest.TestCase):
         card = {"id": 7, "created_at": NOW.isoformat(), "header": "📅 *Demo* starts in 10 min"}
         rows = [{"id": i, "payload": sg.to_json(), "status": "pending", "decided_by": None, "decided_at": None,
                  "snoozed_until": None, "result": None} for i, sg in enumerate([block, handoff], start=1)]
-        _, blocks = slack_ui.render(card, rows, TZ)
+        _, blocks = slack_ui.render(card, rows, TZ, TEAM)
         ids = [e["action_id"] for b in blocks if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("radar:approve:1", ids)
         self.assertIn("radar:all:7", ids)
+        texts = [b["text"]["text"] for b in blocks if b["type"] == "section"]
+        self.assertTrue(any("(Andrei, " in t for t in texts))
+        self.assertFalse(any("@andrei" in t for t in texts))
         labels = [e["text"]["text"] for b in blocks if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("📅 Block 19:00–19:30 to review", labels)
         self.assertIn("✅ Hand off to Cone", labels)

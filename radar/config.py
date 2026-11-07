@@ -31,6 +31,11 @@ class Team:
     def by_github(self, login: str) -> Member | None:
         return next((m for m in self.members if m.github.lower() == login.lower()), None)
 
+    def display_name(self, login: str) -> str:
+        """Team name for a GitHub login; plain login (no @, so Slack won't mention anyone) otherwise."""
+        member = self.by_github(login)
+        return member.name if member else login
+
 
 @dataclass(frozen=True)
 class Settings:

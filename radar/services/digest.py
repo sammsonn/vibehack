@@ -44,11 +44,21 @@ def acted_during(rows, start: dt.datetime, end: dt.datetime) -> list[tuple[objec
     return result
 
 
-def review_outcome(reviews, login: str, since: dt.datetime) -> str | None:
-    """Latest submitted review state by `login` after `since`, or None."""
+def latest_review(reviews, login: str, since: dt.datetime):
+    """Latest submitted review by `login` after `since`, or None."""
     mine = [r for r in reviews if r.user and r.user.login.lower() == login.lower()
             and r.submitted_at and r.submitted_at >= since and r.state != "PENDING"]
-    return max(mine, key=lambda r: r.submitted_at).state if mine else None
+    return max(mine, key=lambda r: r.submitted_at, default=None)
+
+
+def review_outcome(reviews, login: str, since: dt.datetime) -> str | None:
+    review = latest_review(reviews, login, since)
+    return review.state if review else None
+
+
+def review_key(pr_number: int, review_id: int) -> str:
+    """Marks a review as reported to the lead, by the digest or by an instant alert."""
+    return f"review:{pr_number}:{review_id}"
 
 
 OUTCOMES = {
@@ -89,7 +99,10 @@ def due(s: Settings, now: dt.datetime) -> tuple[schedule.Block, list[Line]] | No
         login = row["handed_to"] or (sg.reviewer.github if sg.reviewer else "")
         pr = repo.get_pull(sg.pr.number)
         since = dt.datetime.fromisoformat(row["decided_at"])
-        icon, text = handoff_line(s.team.display_name(login), review_outcome(pr.get_reviews(), login, since),
+        review = latest_review(pr.get_reviews(), login, since)
+        if review:
+            store.fire_once(review_key(sg.pr.number, review.id))
+        icon, text = handoff_line(s.team.display_name(login), review.state if review else None,
                                   pr.merged, pr.state == "closed")
         lines.append(Line(sg.pr.number, sg.pr.title, sg.pr.url, icon, text))
     log.info("digest for busy stretch ending %s: %d PRs", stretch[1].isoformat(), len(lines))

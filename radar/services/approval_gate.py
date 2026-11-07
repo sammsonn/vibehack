@@ -52,15 +52,22 @@ def _handed_off_to(pr_number: int) -> set[str]:
     return logins
 
 
-def sync(s: Settings, numbers: list[int] | None = None) -> None:
-    """Posts the gate status on open PRs (only `numbers` if given); skips PRs whose status is already current."""
+def sync(s: Settings, numbers: list[int] | None = None, on_reviews=None) -> None:
+    """Posts the gate status on open PRs (only `numbers` if given); skips PRs whose status is already current.
+    on_reviews(pr, reviews) is called for every PR checked, e.g. to alert the lead about new reviews."""
     repo = github.live_repo(s)
     for p in repo.get_pulls(state="open"):
         if numbers and p.number not in numbers:
             continue
         head = p.head.sha
+        reviews = list(p.get_reviews())
+        if on_reviews:
+            try:
+                on_reviews(p, reviews)
+            except Exception:
+                log.exception("review alert for #%s failed", p.number)
         allowed = allowed_approvers(s.team, p.user.login, _handed_off_to(p.number))
-        state, description = evaluate(allowed, approvers_of_head(p.get_reviews(), head))
+        state, description = evaluate(allowed, approvers_of_head(reviews, head))
         commit = repo.get_commit(head)
         current = next((st for st in commit.get_statuses() if st.context == CONTEXT), None)
         if current and current.state == state and current.description == description:
@@ -69,10 +76,10 @@ def sync(s: Settings, numbers: list[int] | None = None) -> None:
         log.info("gate #%s: %s (%s)", p.number, state, description)
 
 
-def loop(s: Settings, stop: threading.Event) -> None:
+def loop(s: Settings, stop: threading.Event, on_reviews=None) -> None:
     while True:
         try:
-            sync(s)
+            sync(s, on_reviews=on_reviews)
         except Exception:
             log.exception("approval gate sync failed")
         if stop.wait(SYNC_SECONDS):

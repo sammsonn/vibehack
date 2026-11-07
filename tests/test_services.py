@@ -1,4 +1,5 @@
 """radar.services: triage, reminders, merge gate, sweep context and approved actions (external calls mocked)."""
+import datetime as dt
 import tempfile
 import unittest
 from collections import Counter
@@ -9,7 +10,7 @@ from radar.config import Member, Settings, Team
 from radar.core import ranking
 from radar.core.models import Candidate, Suggestion, TokenUsage
 from radar.integrations import llm
-from radar.services import actions, approval_gate, digest, reminders, sweep, triage
+from radar.services import actions, approval_gate, digest, reminders, review_alerts, sweep, triage
 from radar.slack import blocks, messages
 from radar.storage import store
 from tests.helpers import HIGH, LOW, NOW, TEAM, TZ, ANDREI, CONE, LEAD, at, make_pr
@@ -264,6 +265,63 @@ class DigestTest(unittest.TestCase):
         self.assertIn("*Samson handed you a review* (busy until 18:30)", text)
         self.assertIn("*<https://github.com/o/r/pull/1|#1 PR 1>* by Andrei", text)
         self.assertIn("🟢 Low risk · look first: `README.md`", text)
+
+
+class ReviewAlertTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(store, "DB_PATH", Path(tempfile.mkdtemp()) / "t.db")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        store.init()
+        self.settings = mock.Mock(spec=Settings)
+        self.settings.team = TEAM
+        # Handed off on a card made while the lead was free (no busy stretch).
+        self.sg = Suggestion(make_pr(1), LOW, "handoff", "w", Candidate("cone", "Cone", True, 0, 0), None, None)
+        card = store.create_card("manual", "h", [self.sg])
+        sid = store.card_suggestions(card)[0]["id"]
+        store.claim(sid, "U1")
+        store.finish(sid, "handed_off", handed_to="cone")
+        self.pr = mock.Mock(number=1, head=mock.Mock(sha="head"))
+
+    def rev(self, rid, login, state, when, sha="head"):
+        return mock.Mock(id=rid, user=mock.Mock(login=login), state=state, commit_id=sha, submitted_at=when)
+
+    def check(self, reviews, now, busy=()):
+        notify = mock.Mock()
+        with mock.patch.object(review_alerts.google_calendar, "busy_blocks",
+                               return_value={"lead@x.com": list(busy)}):
+            review_alerts.check(self.settings, self.pr, reviews, notify, now=now)
+        return notify
+
+    def decided_at(self):
+        return dt.datetime.fromisoformat(store.all_suggestions()[0]["decided_at"])
+
+    def test_alerts_once_per_review_by_the_handed_off_reviewer(self):
+        when = self.decided_at()
+        reviews = [self.rev(7, "cone", "APPROVED", when), self.rev(8, "andrei", "APPROVED", when)]
+        notify = self.check(reviews, when)
+        notify.assert_called_once_with(self.sg, "cone", "APPROVED", True)
+        self.check(reviews, when).assert_not_called()
+
+    def test_waits_while_lead_is_in_a_call(self):
+        when = self.decided_at()
+        reviews = [self.rev(7, "cone", "CHANGES_REQUESTED", when)]
+        busy = [(when - dt.timedelta(hours=1), when + dt.timedelta(hours=1))]
+        self.check(reviews, when, busy).assert_not_called()
+        self.assertFalse(store.was_fired(digest.review_key(1, 7)))
+
+    def test_digest_covers_reviews_during_its_stretch(self):
+        stretch = (at(17), at(18, 30))
+        self.assertFalse(review_alerts.announce_now(at(18), True, False, stretch, at(18, 35)))
+        self.assertTrue(review_alerts.announce_now(at(18, 40), True, False, stretch, at(18, 41)))
+        self.assertTrue(review_alerts.announce_now(at(18), True, False, stretch, at(19, 10)))
+        self.assertTrue(review_alerts.announce_now(at(18), False, False, stretch, at(18, 35)))
+
+    def test_alert_text(self):
+        self.assertEqual(messages.review_alert_text(self.settings, self.sg, "cone", "APPROVED", True),
+                         "✅ *Cone approved* <https://github.com/o/r/pull/1|#1 PR 1>: the merge is unblocked.")
+        self.assertEqual(messages.review_alert_text(self.settings, self.sg, "cone", "CHANGES_REQUESTED", False),
+                         "✍️ *Cone requested changes on* <https://github.com/o/r/pull/1|#1 PR 1>: back with the author.")
 
 
 if __name__ == "__main__":

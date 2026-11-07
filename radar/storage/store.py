@@ -172,6 +172,11 @@ def fire_once(key: str) -> bool:
         return cur.rowcount == 1
 
 
+def was_fired(key: str) -> bool:
+    with connect() as c:
+        return c.execute("SELECT 1 FROM fired_triggers WHERE key = ?", (key,)).fetchone() is not None
+
+
 def all_suggestions() -> list[sqlite3.Row]:
     with connect() as c:
         return c.execute("SELECT * FROM suggestions ORDER BY id").fetchall()

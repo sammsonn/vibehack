@@ -8,7 +8,7 @@ from radar.config import Settings
 from radar.core import schedule
 from radar.core.models import Suggestion
 from radar.integrations import google_calendar
-from radar.services.digest import Line
+from radar.services.digest import OUTCOMES, Line
 from radar.slack.blocks import duration, render
 from radar.storage import store
 
@@ -53,6 +53,21 @@ def digest_text(stretch: schedule.Block, lines: list[Line], tz: dt.tzinfo) -> st
 def post_digest(client: WebClient, s: Settings, stretch: schedule.Block, lines: list[Line]) -> None:
     lead = s.team.lead.email
     _dm(client, lead, digest_text(stretch, lines, google_calendar.timezone_of(lead)))
+
+
+def review_alert_text(s: Settings, sg: Suggestion, login: str, state: str, unblocked: bool) -> str:
+    icon, verb = OUTCOMES.get(state, ("💬", "reviewed"))
+    pr = f"<{sg.pr.url}|#{sg.pr.number} {sg.pr.title}>"
+    text = f"{icon} *{s.team.display_name(login)} {verb}* {pr}"
+    if unblocked:
+        return f"{text}: the merge is unblocked."
+    if state == "CHANGES_REQUESTED":
+        return f"{text}: back with the author."
+    return text
+
+
+def post_review_alert(client: WebClient, s: Settings, sg: Suggestion, login: str, state: str, unblocked: bool) -> None:
+    _dm(client, s.team.lead.email, review_alert_text(s, sg, login, state, unblocked))
 
 
 def post_card(client: WebClient, s: Settings, card_id: int) -> None:

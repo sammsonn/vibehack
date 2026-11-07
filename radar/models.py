@@ -56,6 +56,10 @@ class Suggestion:
     reviewer: Candidate | None = None
     slot: tuple[datetime, datetime] | None = None
     lead_busy_until: datetime | None = None
+    candidates: tuple[Candidate, ...] = ()  # every eligible reviewer, best first (for the lead's own pick)
+
+    def candidate(self, github: str) -> Candidate | None:
+        return next((c for c in self.candidates if c.github.lower() == github.lower()), None)
 
     def to_json(self) -> str:
         data = asdict(self)
@@ -70,15 +74,16 @@ class Suggestion:
         pr = d["pr"]
         pr["waiting_since"] = ts(pr["waiting_since"])
         pr["files"] = tuple(pr["files"])
-        reviewer = d.get("reviewer")
-        if reviewer:
-            reviewer["busy_until"] = ts(reviewer.get("busy_until"))
+        def candidate(c: dict | None) -> Candidate | None:
+            return Candidate(**{**c, "busy_until": ts(c.get("busy_until"))}) if c else None
+
         return cls(
             pr=PR(**pr),
             triage=Triage(**d["triage"]),
             action=d["action"],
             why=d["why"],
-            reviewer=Candidate(**reviewer) if reviewer else None,
+            reviewer=candidate(d.get("reviewer")),
             slot=(ts(d["slot"][0]), ts(d["slot"][1])) if d.get("slot") else None,
             lead_busy_until=ts(d.get("lead_busy_until")),
+            candidates=tuple(candidate(c) for c in d.get("candidates", [])),
         )

@@ -7,7 +7,8 @@ checks which pull requests are waiting on the lead, summarizes and risk-rates th
 - **High risk** (auth, payments, migrations, infra, security, large diffs) → keep it with the lead and reserve the
   first free 30 min after the calls.
 
-Nothing happens without the lead's click. On approval Radar requests the review on GitHub and posts the summary as a
+Nothing happens without the lead's click. Each PR on the card also has a **Choose reviewer** menu listing every eligible engineer
+in Radar's ranked order (with the reasons), so the lead can hand off to someone else, even on a high-risk PR. On approval Radar requests the review on GitHub and posts the summary as a
 PR comment, or creates the review block in the lead's calendar.
 
 ## Setup

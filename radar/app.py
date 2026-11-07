@@ -50,11 +50,12 @@ def create_app(s: Settings) -> App:
                 return
             card_id = row["card_id"]
         refresh = lambda: slack_ui.refresh_card(client, s, card_id)  # noqa: E731
-        log.info("click: %s on %s by %s", verb, raw_id, user)
+        picked = (action.get("selected_option") or {}).get("value")
+        log.info("click: %s on %s by %s%s", verb, raw_id, user, f" (picked {picked})" if picked else "")
         if verb == "all":
             actions.approve_all(s, card_id, user, on_claimed=refresh)
         else:
-            actions.execute(s, int(raw_id), verb, user, on_claimed=refresh)
+            actions.execute(s, int(raw_id), verb, user, on_claimed=refresh, reviewer=picked)
         refresh()
 
     @app.command("/radar")

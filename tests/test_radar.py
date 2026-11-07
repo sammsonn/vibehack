@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import tempfile
 from pathlib import Path
 
-from radar import calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store, sweep
+from radar import actions, calendar_api, llm, ranking, reminders, rules, slack_ui, stats, store, sweep
 from radar.config import Member, Settings, Team
 from radar.models import PR, Candidate, Suggestion, Triage
 
@@ -246,6 +246,52 @@ class LeadContextTest(unittest.TestCase):
     def test_upcoming_review_block_is_not_a_precall(self):
         c = self.ctx([self.event("🔍 Review PR #3: x", at(19), at(19, 30), True)], at(18, 55))
         self.assertEqual((c.header, c.upcoming_event), ("No calls right now", None))
+
+
+class ReviewerPickTest(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(store, "DB_PATH", Path(tempfile.mkdtemp()) / "t.db")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        store.init()
+        self.settings = mock.Mock(spec=Settings)
+        self.settings.team = TEAM
+        busy = {"cone@x.com": [(at(16), at(18))]}
+        team = Team(LEAD, (LEAD, ANDREI, CONE, Member("Ana", "ana", "ana@x.com")))
+        pr = make_pr(author="ana")
+        self.ranked = ranking.rank(pr, team, Counter(cone=4), Counter(), busy, NOW)
+        self.sg = ranking.decide(pr, HIGH, self.ranked, (at(19), at(19, 30)), at(19))
+        self.card = store.create_card("manual", "h", [self.sg])
+        self.sid = store.card_suggestions(self.card)[0]["id"]
+
+    def test_ranking_survives_storage(self):
+        back = Suggestion.from_json(store.suggestion(self.sid)["payload"])
+        self.assertEqual([c.github for c in back.candidates], ["andrei", "cone"])
+        self.assertEqual(back.candidates[1].busy_until, at(18))
+
+    def test_picker_lists_ranking_with_reasons(self):
+        picker = slack_ui.reviewer_picker(self.sg, "1", TZ)
+        labels = [o["text"]["text"] for o in picker["options"]]
+        self.assertEqual(labels, ["1. Andrei · free", "2. Cone · busy until 18:00"])
+        self.assertEqual(slack_ui.ranking_line(self.sg, TZ),
+                         "👥 *Ranking*\n1. *Andrei*: free · 0 commits here · 0 open reviews\n"
+                         "2. *Cone*: busy until 18:00 · 4 commits here · 0 open reviews")
+        self.assertEqual(picker["action_id"], "radar:pick:1")
+
+    def test_pick_must_be_in_ranking(self):
+        self.assertFalse(actions.execute(self.settings, self.sid, "pick", "U1", reviewer="lead"))
+        self.assertEqual(store.suggestion(self.sid)["status"], "pending")
+
+    def test_pick_hands_off_to_chosen_engineer_even_on_high_risk(self):
+        with mock.patch.object(actions.calendar_api, "timezone_of", return_value=TZ), \
+             mock.patch.object(actions.github_api, "live_repo"), \
+             mock.patch.object(actions.github_api, "still_waiting_on") as waiting, \
+             mock.patch.object(actions.github_api, "hand_off") as hand_off:
+            self.assertTrue(actions.execute(self.settings, self.sid, "pick", "U1", reviewer="cone"))
+        hand_off.assert_called_once()
+        self.assertEqual(hand_off.call_args.args[1:3], ("lead", "cone"))
+        row = store.suggestion(self.sid)
+        self.assertEqual((row["status"], row["result"]), ("handed_off", "Handed off to Cone (your pick)"))
 
 
 if __name__ == "__main__":

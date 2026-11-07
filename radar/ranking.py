@@ -33,11 +33,12 @@ def decide(pr: PR, triage: Triage, ranked: list[Candidate],
            lead_slot: calendar_api.Block | None, lead_busy_until: dt.datetime | None) -> Suggestion:
     best = ranked[0] if ranked else None
     if triage.risk == "low" and best and best.free:
-        return Suggestion(pr, triage, "handoff", f"Low risk, {best.name} is {best.why}", best, None, lead_busy_until)
+        return Suggestion(pr, triage, "handoff", f"Low risk, {best.name} is {best.why}", best, None, lead_busy_until,
+                          tuple(ranked))
     if triage.risk == "high":
         why = "High risk, stays with you"
     elif not ranked:
         why = "No teammate can review it (the author is the only other person)"
     else:
         why = f"No free teammate ({', '.join(c.name for c in ranked)} busy)"
-    return Suggestion(pr, triage, "block", why, None, lead_slot, lead_busy_until)
+    return Suggestion(pr, triage, "block", why, None, lead_slot, lead_busy_until, tuple(ranked))

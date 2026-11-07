@@ -4,17 +4,17 @@ import logging
 
 from radar import calendar_api, github_api, store
 from radar.config import Settings
-from radar.models import Suggestion
+from radar.models import Candidate, Suggestion
 from radar.slack_ui import SNOOZE_HOURS
 
 log = logging.getLogger(__name__)
 
 
-def _handoff_comment(s: Settings, sg: Suggestion, tz: dt.tzinfo) -> str:
+def _handoff_comment(s: Settings, sg: Suggestion, reviewer: Candidate, tz: dt.tzinfo) -> str:
     lead = s.team.lead
     busy = f"is busy until {sg.lead_busy_until.astimezone(tz):%H:%M}" if sg.lead_busy_until else "is busy"
     return (
-        f"🛰️ **Review Radar**: @{lead.github} {busy} and handed this review to @{sg.reviewer.github}.\n\n"
+        f"🛰️ **Review Radar**: @{lead.github} {busy} and handed this review to @{reviewer.github}.\n\n"
         f"**Summary:** {sg.triage.summary}\n"
         f"**Risk:** {sg.triage.risk} ({sg.triage.risk_reason})\n"
         f"**Look first:** `{sg.triage.look_first}`\n\n"
@@ -32,7 +32,8 @@ def _block_comment(s: Settings, sg: Suggestion, start: dt.datetime, end: dt.date
     )
 
 
-def _approve(s: Settings, sid: int, sg: Suggestion) -> None:
+def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = None) -> None:
+    """chosen: a reviewer the lead picked from the ranking; overrides Radar's suggestion."""
     lead = s.team.lead
     tz = calendar_api.timezone_of(lead.email)
     repo = github_api.live_repo(s)
@@ -40,9 +41,11 @@ def _approve(s: Settings, sid: int, sg: Suggestion) -> None:
     if pr is None:
         store.finish(sid, "stale", f"#{sg.pr.number} is closed or no longer waiting on {lead.name}")
         return
-    if sg.action == "handoff":
-        github_api.hand_off(pr, lead.github, sg.reviewer.github, _handoff_comment(s, sg, tz))
-        store.finish(sid, "handed_off", f"Handed off to {sg.reviewer.name}")
+    reviewer = chosen or (sg.reviewer if sg.action == "handoff" else None)
+    if reviewer:
+        github_api.hand_off(pr, lead.github, reviewer.github, _handoff_comment(s, sg, reviewer, tz))
+        own_pick = chosen is not None and (sg.reviewer is None or chosen.github != sg.reviewer.github)
+        store.finish(sid, "handed_off", f"Handed off to {reviewer.name}{' (your pick)' if own_pick else ''}")
     elif sg.slot:
         start, end = sg.slot
         now = dt.datetime.now(dt.timezone.utc)
@@ -62,10 +65,16 @@ def _approve(s: Settings, sid: int, sg: Suggestion) -> None:
         store.finish(sid, "failed", "nothing to approve")
 
 
-def execute(s: Settings, sid: int, verb: str, user: str, on_claimed=None) -> bool:
-    """verb: approve | keep | snooze. Returns False if the suggestion was already decided."""
+def execute(s: Settings, sid: int, verb: str, user: str, on_claimed=None, reviewer: str | None = None) -> bool:
+    """verb: approve | pick (reviewer = GitHub login from the ranking) | keep | snooze.
+    Returns False if the suggestion was already decided or the pick is not an eligible reviewer."""
     row = store.suggestion(sid)
-    if row is None or not store.claim(sid, user):
+    if row is None:
+        return False
+    chosen = Suggestion.from_json(row["payload"]).candidate(reviewer) if verb == "pick" and reviewer else None
+    if verb == "pick" and chosen is None:
+        return False
+    if not store.claim(sid, user):
         return False
     if on_claimed:
         on_claimed()
@@ -73,6 +82,8 @@ def execute(s: Settings, sid: int, verb: str, user: str, on_claimed=None) -> boo
     try:
         if verb == "approve":
             _approve(s, sid, sg)
+        elif verb == "pick":
+            _approve(s, sid, sg, chosen)
         elif verb == "keep":
             store.finish(sid, "kept")
         elif verb == "snooze":

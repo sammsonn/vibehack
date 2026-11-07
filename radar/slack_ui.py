@@ -40,6 +40,50 @@ def _button(text: str, action_id: str, value: str, style: str | None = None) -> 
     return b
 
 
+def _status(c, tz: dt.tzinfo) -> str:
+    if c.free:
+        return "free"
+    return f"busy until {_t(c.busy_until, tz)}" if c.busy_until else "busy soon"
+
+
+def candidate_label(c, rank: int, suggested: bool, tz: dt.tzinfo) -> str:
+    """Short enough for Slack's select menu; the reasons are in ranking_line()."""
+    return f"{'⭐ ' if suggested else ''}{rank}. {c.name} · {_status(c, tz)}"[:75]
+
+
+def ranking_line(sg: Suggestion, tz: dt.tzinfo) -> str | None:
+    if not sg.candidates:
+        return None
+    parts = []
+    for i, c in enumerate(sg.candidates, start=1):
+        commits = f"{c.file_commits} commit{'s' if c.file_commits != 1 else ''} here"
+        reviews = f"{c.open_reviews} open review{'s' if c.open_reviews != 1 else ''}"
+        parts.append(f"{i}. *{c.name}*: {_status(c, tz)} · {commits} · {reviews}")
+    return "👥 *Ranking*\n" + "\n".join(parts)
+
+
+def reviewer_picker(sg: Suggestion, sid: str, tz: dt.tzinfo) -> dict | None:
+    if not sg.candidates:
+        return None
+    suggested = sg.reviewer.github if sg.action == "handoff" and sg.reviewer else None
+    return {
+        "type": "static_select",
+        "action_id": f"radar:pick:{sid}",
+        "placeholder": {"type": "plain_text", "text": "👥 Choose reviewer…", "emoji": True},
+        "options": [
+            {"text": {"type": "plain_text", "text": candidate_label(c, i, c.github == suggested, tz), "emoji": True},
+             "value": c.github}
+            for i, c in enumerate(sg.candidates, start=1)
+        ],
+        "confirm": {
+            "title": {"type": "plain_text", "text": "Hand off this review?"},
+            "text": {"type": "mrkdwn", "text": f"Radar will request the review of *#{sg.pr.number}* from the engineer you picked and remove you as reviewer."},
+            "confirm": {"type": "plain_text", "text": "Hand off"},
+            "deny": {"type": "plain_text", "text": "Cancel"},
+        },
+    }
+
+
 def primary_label(sg: Suggestion, tz: dt.tzinfo) -> str | None:
     if sg.action == "handoff":
         return f"✅ Hand off to {sg.reviewer.name}"
@@ -103,6 +147,10 @@ def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]
                 buttons.append(_button(label, f"radar:approve:{sid}", sid, "primary"))
             buttons.append(_button("🙋 Keep", f"radar:keep:{sid}", sid))
             buttons.append(_button(f"⏰ Snooze {SNOOZE_HOURS}h", f"radar:snooze:{sid}", sid))
+            picker = reviewer_picker(sg, sid, tz)
+            if picker:
+                buttons.append(picker)
+                blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": ranking_line(sg, tz)[:2900]}]})
             blocks.append({"type": "actions", "elements": buttons})
         else:
             blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": _outcome(row, tz)}]})

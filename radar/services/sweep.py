@@ -8,7 +8,7 @@ from radar.config import Settings
 from radar.core import ranking, schedule
 from radar.core.models import Suggestion
 from radar.integrations import github, google_calendar
-from radar.services import reminders, triage
+from radar.services import digest, reminders, triage
 from radar.storage import store
 
 log = logging.getLogger(__name__)
@@ -104,9 +104,10 @@ def run(s: Settings, post, now: dt.datetime | None = None, trigger: str = "manua
     return card_id
 
 
-def tick(s: Settings, post, now: dt.datetime | None = None, remind=None) -> int | None:
+def tick(s: Settings, post, now: dt.datetime | None = None, remind=None, send_digest=None) -> int | None:
     """Automatic check: a sweep right before each of the lead's calls, stale PRs while the lead is busy, and
-    once the lead is free again, one reminder per card that is still unclicked (remind(card_id, suggestions))."""
+    once the lead is free again, one reminder per card that is still unclicked (remind(card_id, suggestions))
+    and one digest of what Radar's handoffs led to (send_digest(stretch, lines))."""
     now = now or dt.datetime.now(dt.timezone.utc)
     lead = s.team.lead.email
     lead_blocks = google_calendar.busy_blocks([lead], now, now + dt.timedelta(minutes=1))[lead]
@@ -114,6 +115,10 @@ def tick(s: Settings, post, now: dt.datetime | None = None, remind=None) -> int 
     if remind and not busy_now:
         for card_id, pending in reminders.due(s, now):
             remind(card_id, pending)
+    if send_digest and not busy_now:
+        result = digest.due(s, now)
+        if result:
+            send_digest(*result)
     window = dt.timedelta(minutes=s.precall_minutes)
     upcoming = [e for e in google_calendar.events_between(lead, now, now + window)
                 if now < e["start"] <= now + window and not e["review_block"]]

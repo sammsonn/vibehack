@@ -56,12 +56,13 @@ def create_app(s: Settings) -> App:
                 return
             card_id = row["card_id"]
         refresh = lambda: messages.refresh_card(client, s, card_id)  # noqa: E731
+        notify = lambda sg, login: messages.notify_reviewer(client, s, sg, login)  # noqa: E731
         picked = (action.get("selected_option") or {}).get("value")
         log.info("click: %s on %s by %s%s", verb, raw_id, user, f" (picked {picked})" if picked else "")
         if verb == "all":
-            actions.approve_all(s, card_id, user, on_claimed=refresh)
+            actions.approve_all(s, card_id, user, on_claimed=refresh, on_handoff=notify)
         else:
-            actions.execute(s, int(raw_id), verb, user, on_claimed=refresh, reviewer=picked)
+            actions.execute(s, int(raw_id), verb, user, on_claimed=refresh, reviewer=picked, on_handoff=notify)
         refresh()
 
     @app.command("/radar")
@@ -91,11 +92,11 @@ def create_app(s: Settings) -> App:
     return app
 
 
-def _scheduler(s: Settings, post, remind, stop: threading.Event) -> None:
+def _scheduler(s: Settings, post, remind, send_digest, stop: threading.Event) -> None:
     interval = s.poll_minutes * 60
     while True:
         try:
-            sweep.tick(s, post, remind=remind)
+            sweep.tick(s, post, remind=remind, send_digest=send_digest)
         except Exception:
             log.exception("automatic check failed")
         runtime.beat(runtime.heartbeat_path())  # the loop is alive even if one check failed
@@ -117,7 +118,9 @@ def _run(s: Settings) -> None:
     stop = threading.Event()
     post = lambda card_id: messages.post_card(app.client, s, card_id)  # noqa: E731
     remind = lambda card_id, pending: messages.post_reminder(app.client, s, card_id, pending)  # noqa: E731
-    threading.Thread(target=_scheduler, args=(s, post, remind, stop), daemon=True, name="radar-scheduler").start()
+    send_digest = lambda stretch, lines: messages.post_digest(app.client, s, stretch, lines)  # noqa: E731
+    threading.Thread(target=_scheduler, args=(s, post, remind, send_digest, stop), daemon=True,
+                     name="radar-scheduler").start()
     threading.Thread(target=approval_gate.loop, args=(s, stop), daemon=True, name="radar-gate").start()
     log.info("Review Radar running: checking every %d min, pre-call window %d min", s.poll_minutes, s.precall_minutes)
     handler = SocketModeHandler(app, s.slack_app_token)

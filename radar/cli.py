@@ -5,6 +5,7 @@
   python -m radar sweep --dry-run           Print suggestions without posting or storing anything
   python -m radar stats [--days 30]         Time to first review with vs without Radar, plus decisions
   python -m radar remind [--at 19:05]       Send due reminders for unclicked cards now (demo)
+  python -m radar digest [--at 18:35]       Send the "while you were in calls" digest now if one is due (demo)
   python -m radar health                    Exit 0 if the running bot checked in recently (Docker HEALTHCHECK)
   python -m radar gate                      Update the radar/approval merge-gate status on open PRs now
 """
@@ -18,7 +19,7 @@ from slack_sdk import WebClient
 
 from radar import config, runtime
 from radar.integrations import google_calendar
-from radar.services import approval_gate, reminders, stats, sweep
+from radar.services import approval_gate, digest, reminders, stats, sweep
 from radar.slack import blocks, bot, messages
 from radar.storage import store
 
@@ -44,6 +45,8 @@ def main() -> None:
     st.add_argument("--days", type=int, default=30)
     rm = sub.add_parser("remind", help="send due reminders for unclicked cards")
     rm.add_argument("--at", help="pretend it is this time (HH:MM today, or ISO timestamp)")
+    dg = sub.add_parser("digest", help="send the post-call digest if one is due")
+    dg.add_argument("--at", help="pretend it is this time (HH:MM today, or ISO timestamp)")
     sub.add_parser("gate", help="update the radar/approval status on open PRs")
     sub.add_parser("health", help="exit 0 if the running bot checked in recently")
     args = parser.parse_args()
@@ -90,6 +93,12 @@ def main() -> None:
         for cid, pending in due:
             messages.post_reminder(client, s, cid, pending, now)
         print(f"Reminded {len(due)} card(s)" if due else "No reminders due.")
+        return
+    if args.command == "digest":
+        result = digest.due(s, now)
+        if result:
+            messages.post_digest(client, s, *result)
+        print(f"Sent digest with {len(result[1])} PR(s)" if result else "No digest due.")
         return
     card_id = sweep.run(s, lambda cid: messages.post_card(client, s, cid), now=now, trigger="manual")
     print(f"Posted card {card_id}" if card_id else "Nothing is waiting on the lead right now.")

@@ -35,8 +35,9 @@ def _block_comment(s: Settings, sg: Suggestion, start: dt.datetime, end: dt.date
     )
 
 
-def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = None) -> None:
-    """chosen: a reviewer the lead picked from the ranking; overrides Radar's suggestion."""
+def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = None, on_handoff=None) -> None:
+    """chosen: a reviewer the lead picked from the ranking; overrides Radar's suggestion.
+    on_handoff(sg, reviewer_github): called after a successful handoff, e.g. to DM the reviewer."""
     lead = s.team.lead
     tz = google_calendar.timezone_of(lead.email)
     repo = github.live_repo(s)
@@ -54,6 +55,11 @@ def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = N
             approval_gate.sync(s, [sg.pr.number])
         except Exception:  # the gate loop retries within a minute
             log.warning("approval gate update for #%s failed", sg.pr.number, exc_info=True)
+        if on_handoff:
+            try:
+                on_handoff(sg, reviewer.github)
+            except Exception:  # the handoff itself already succeeded
+                log.warning("could not notify %s about #%s", reviewer.github, sg.pr.number, exc_info=True)
     elif sg.slot:
         start, end = sg.slot
         now = dt.datetime.now(dt.timezone.utc)
@@ -73,7 +79,8 @@ def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = N
         store.finish(sid, "failed", "nothing to approve")
 
 
-def execute(s: Settings, sid: int, verb: str, user: str, on_claimed=None, reviewer: str | None = None) -> bool:
+def execute(s: Settings, sid: int, verb: str, user: str, on_claimed=None, reviewer: str | None = None,
+            on_handoff=None) -> bool:
     """verb: approve | pick (reviewer = GitHub login from the ranking) | keep | snooze.
     Returns False if the suggestion was already decided or the pick is not an eligible reviewer."""
     row = store.suggestion(sid)
@@ -89,9 +96,9 @@ def execute(s: Settings, sid: int, verb: str, user: str, on_claimed=None, review
     sg = Suggestion.from_json(row["payload"])
     try:
         if verb == "approve":
-            _approve(s, sid, sg)
+            _approve(s, sid, sg, on_handoff=on_handoff)
         elif verb == "pick":
-            _approve(s, sid, sg, chosen)
+            _approve(s, sid, sg, chosen, on_handoff=on_handoff)
         elif verb == "keep":
             store.finish(sid, "kept")
         elif verb == "snooze":
@@ -105,8 +112,8 @@ def execute(s: Settings, sid: int, verb: str, user: str, on_claimed=None, review
     return True
 
 
-def approve_all(s: Settings, card_id: int, user: str, on_claimed=None) -> None:
+def approve_all(s: Settings, card_id: int, user: str, on_claimed=None, on_handoff=None) -> None:
     for row in store.card_suggestions(card_id):
         sg = Suggestion.from_json(row["payload"])
         if row["status"] == "pending" and (sg.action == "handoff" or sg.slot):
-            execute(s, row["id"], "approve", user, on_claimed)
+            execute(s, row["id"], "approve", user, on_claimed, on_handoff=on_handoff)

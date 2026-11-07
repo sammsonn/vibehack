@@ -1,0 +1,21 @@
+# Secrets: mounted at runtime, never baked into the image
+.env
+*.pem
+token.json
+credentials.json
+team.json
+
+# Local state
+*.db
+*.db-wal
+*.db-shm
+*.lock
+*.heartbeat
+*.log
+
+# Dev
+.git
+.venv
+__pycache__
+*.pyc
+tests

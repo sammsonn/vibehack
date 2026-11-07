@@ -14,7 +14,8 @@ PR comment, or creates the review block in the lead's calendar.
 ## Setup
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt -e .   # pinned dependencies + the `radar` command
 cp .env.example .env                 # fill in values
 cp team.example.json team.json       # lead + teammates (GitHub login, Google/Slack email)
 .venv/bin/python -m scripts.google_login   # once, log in as the Google bot account
@@ -24,13 +25,46 @@ cp team.example.json team.json       # lead + teammates (GitHub login, Google/Sl
 ## Run
 
 ```bash
-.venv/bin/python -m radar run                        # Slack bot + automatic checks (run exactly one copy)
-.venv/bin/python -m radar sweep --at 16:50           # post a card now, as if it were 16:50 (demo)
-.venv/bin/python -m radar sweep --at 16:50 --dry-run # print suggestions, post nothing
-.venv/bin/python -m radar stats --days 30            # the number: time to first review, with vs without Radar
-.venv/bin/python -m radar remind --at 19:05          # send due reminders for unclicked cards now (demo)
-.venv/bin/python -m unittest discover tests          # unit tests
+.venv/bin/radar run                        # Slack bot + automatic checks (only one per data directory, see below)
+.venv/bin/radar sweep --at 16:50           # post a card now, as if it were 16:50 (demo)
+.venv/bin/radar sweep --at 16:50 --dry-run # print suggestions, post nothing
+.venv/bin/radar stats --days 30            # the number: time to first review, with vs without Radar
+.venv/bin/radar remind --at 19:05          # send due reminders for unclicked cards now (demo)
+.venv/bin/radar gate                       # update the radar/approval merge-gate status on open PRs
+.venv/bin/radar health                     # exit 0 if the running bot checked in recently
+.venv/bin/python -m unittest discover tests
 ```
+
+`python -m radar …` works the same without installing the package.
+
+## Deploy with Docker
+
+The image holds only code and pinned dependencies. Secrets are mounted read-only at runtime, and state
+(`radar.db`, the refreshed Google token, the lock and heartbeat) lives in the `radar-data` volume.
+
+```bash
+# Needs .env, team.json, github-app.pem, credentials.json and token.json in the repo folder (see Setup).
+docker compose up -d --build
+docker compose logs -f radar
+docker compose ps                          # shows "healthy" once the first check has run
+docker compose run --rm radar python -m radar sweep --dry-run   # one-off commands use the same config
+```
+
+- **One bot only.** `radar run` holds a lock next to `radar.db` and refuses to start a second copy on the same data
+  directory. It cannot see bots on other machines: if two people run Radar against the same Slack app, button
+  clicks are split between them. Stop the local bot before starting the container.
+- **Health check:** the scheduler writes a heartbeat after every check; `radar health` fails if none arrived within
+  two check intervals plus 2 minutes.
+- **Shutdown:** `docker compose stop` sends SIGTERM; Radar closes the Slack connection and stops its loops cleanly.
+- **Secrets on a shared host:** keep `github-app.pem`, `token.json` and `.env` readable only by you
+  (`chmod 600`). The container user (uid 10001) must still be able to read the mounted files, so on shared hosts
+  prefer Docker secrets or a host directory owned by that uid.
+- **File locations** can be changed with `RADAR_TEAM_FILE`, `RADAR_DB_PATH`, `GOOGLE_TOKEN_PATH`,
+  `GOOGLE_CREDENTIALS_PATH` and `GITHUB_APP_KEY_PATH` (relative paths resolve against the repo, or `RADAR_HOME`).
+- **Database schema** is versioned (`PRAGMA user_version`) and migrated automatically on start.
+- **Dependencies:** direct ones with ranges in `pyproject.toml`; exact tested versions in `requirements.txt`.
+
+## Slack and the number
 
 In Slack, `/radar sweep [HH:MM]` and `/radar stats [days]` do the same, once the `/radar` slash command is added in
 the Slack app settings (Slash Commands → Create New Command, then reinstall the app).

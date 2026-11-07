@@ -1,0 +1,28 @@
+services:
+  radar:
+    build: .
+    image: review-radar:latest
+    restart: unless-stopped
+    env_file: .env
+    # These win over .env, which holds the local (non-Docker) paths.
+    environment:
+      RADAR_DB_PATH: /data/radar.db
+      GOOGLE_TOKEN_PATH: /data/token.json
+      RADAR_TEAM_FILE: /secrets/team.json
+      GITHUB_APP_KEY_PATH: /secrets/github-app.pem
+      GOOGLE_CREDENTIALS_PATH: /secrets/credentials.json
+    volumes:
+      - radar-data:/data
+      - ./team.json:/secrets/team.json:ro
+      - ./github-app.pem:/secrets/github-app.pem:ro
+      - ./credentials.json:/secrets/credentials.json:ro
+      - ./token.json:/secrets/token.json:ro
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  radar-data:

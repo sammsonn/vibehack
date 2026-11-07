@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import datetime as dt
+import threading
 from functools import cache
 from zoneinfo import ZoneInfo
 
+import httplib2
+from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 
 from radar.google_auth import get_credentials
@@ -15,6 +18,8 @@ REVIEW_BLOCK_PREFIX = "🔍 Review PR"
 MERGE_GAP = dt.timedelta(minutes=5)
 WORK_START_HOUR = 9
 WORK_END_HOUR = 20
+HTTP_TIMEOUT_SECONDS = 30
+_local = threading.local()
 
 
 def _ts(value: str) -> dt.datetime:
@@ -64,9 +69,14 @@ def first_free_slot(blocks: list[Block], after: dt.datetime, minutes: int, tz: d
     return None
 
 
-@cache
 def service():
-    return build("calendar", "v3", credentials=get_credentials(), cache_discovery=False)
+    """One client per thread: the underlying httplib2 connection is not thread-safe, and the scheduler,
+    merge gate and Slack handlers call Calendar concurrently. The timeout keeps a hung request from
+    freezing the scheduler."""
+    if getattr(_local, "service", None) is None:
+        http = AuthorizedHttp(get_credentials(), http=httplib2.Http(timeout=HTTP_TIMEOUT_SECONDS))
+        _local.service = build("calendar", "v3", http=http, cache_discovery=False)
+    return _local.service
 
 
 @cache

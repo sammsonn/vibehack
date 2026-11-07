@@ -2,12 +2,14 @@
 import datetime as dt
 import logging
 import re
+import signal
+import sys
 import threading
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from radar import actions, approval_gate, calendar_api, slack_ui, stats, store, sweep
+from radar import actions, approval_gate, calendar_api, runtime, slack_ui, stats, store, sweep
 from radar.config import Settings
 
 log = logging.getLogger(__name__)
@@ -92,12 +94,21 @@ def _scheduler(s: Settings, post, remind, stop: threading.Event) -> None:
             sweep.tick(s, post, remind=remind)
         except Exception:
             log.exception("automatic check failed")
+        runtime.beat(runtime.heartbeat_path())  # the loop is alive even if one check failed
         if stop.wait(interval):
             return
 
 
 def run(s: Settings) -> None:
+    with runtime.single_instance(runtime.lock_path()):
+        _run(s)
+
+
+def _run(s: Settings) -> None:
     store.init()
+    runtime.beat(runtime.heartbeat_path())
+    # `docker stop` sends SIGTERM: exit through the finally block instead of being killed mid-write.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     app = create_app(s)
     stop = threading.Event()
     post = lambda card_id: slack_ui.post_card(app.client, s, card_id)  # noqa: E731
@@ -105,7 +116,10 @@ def run(s: Settings) -> None:
     threading.Thread(target=_scheduler, args=(s, post, remind, stop), daemon=True, name="radar-scheduler").start()
     threading.Thread(target=approval_gate.loop, args=(s, stop), daemon=True, name="radar-gate").start()
     log.info("Review Radar running: checking every %d min, pre-call window %d min", s.poll_minutes, s.precall_minutes)
+    handler = SocketModeHandler(app, s.slack_app_token)
     try:
-        SocketModeHandler(app, s.slack_app_token).start()
+        handler.start()
     finally:
+        log.info("Review Radar shutting down")
         stop.set()
+        handler.close()

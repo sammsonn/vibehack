@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "review-radar"
+version = "0.1.0"
+description = "When the engineering lead switches to client calls, the code keeps moving."
+readme = "README.md"
+requires-python = ">=3.11"
+# Direct dependencies with compatible ranges. Exact, tested versions are pinned in requirements.txt.
+dependencies = [
+    "google-api-python-client>=2.100,<3",
+    "google-auth-httplib2>=0.2,<1",
+    "google-auth-oauthlib>=1.2,<2",
+    "httplib2>=0.22,<1",
+    "openai>=1.40,<4",
+    "PyGithub>=2.4,<3",
+    "python-dotenv>=1.0,<2",
+    "slack-bolt>=1.20,<2",
+    "slack-sdk>=3.30,<4",
+    "tzdata>=2024.1",
+]
+
+[project.scripts]
+radar = "radar.__main__:main"
+
+[tool.setuptools]
+packages = ["radar"]

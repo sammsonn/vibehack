@@ -3,10 +3,10 @@ import datetime as dt
 import sqlite3
 from contextlib import contextmanager
 
-from radar.config import ROOT
+from radar import config
 from radar.models import Suggestion
 
-DB_PATH = ROOT / "radar.db"
+DB_PATH = config.DB_PATH
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cards (
     id INTEGER PRIMARY KEY,
@@ -53,12 +53,34 @@ def connect():
         conn.close()
 
 
-def init() -> None:
+def _add_handed_to(c: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in c.execute("PRAGMA table_info(suggestions)")}
+    if "handed_to" not in columns:
+        c.execute("ALTER TABLE suggestions ADD COLUMN handed_to TEXT")
+
+
+# Schema version N is reached by running MIGRATIONS[:N] in order; the version is kept in PRAGMA user_version.
+# Every step must be safe on databases created before versioning existed. Append new steps, never edit old ones.
+MIGRATIONS = [
+    lambda c: c.executescript(SCHEMA),
+    _add_handed_to,
+]
+
+
+def schema_version() -> int:
     with connect() as c:
-        c.executescript(SCHEMA)
-        columns = {row["name"] for row in c.execute("PRAGMA table_info(suggestions)")}
-        if "handed_to" not in columns:  # databases created before the reviewer picker
-            c.execute("ALTER TABLE suggestions ADD COLUMN handed_to TEXT")
+        return c.execute("PRAGMA user_version").fetchone()[0]
+
+
+def init() -> None:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with connect() as c:
+        # WAL lets the scheduler, Slack handlers and CLI commands read while another one writes.
+        c.execute("PRAGMA journal_mode=WAL")
+        version = c.execute("PRAGMA user_version").fetchone()[0]
+        for step in MIGRATIONS[version:]:
+            step(c)
+        c.execute(f"PRAGMA user_version = {len(MIGRATIONS)}")
 
 
 def create_card(trigger: str, header: str, suggestions: list[Suggestion]) -> int:

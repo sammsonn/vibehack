@@ -9,9 +9,15 @@ team.json
 .venv/
 __pycache__/
 *.pyc
+*.egg-info/
+build/
 
 # Local data
 *.db
+*.db-wal
+*.db-shm
+*.lock
+*.heartbeat
 
 # Logs
 *.log

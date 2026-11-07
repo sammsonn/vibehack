@@ -5,7 +5,21 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+# RADAR_HOME: where .env, team.json and the other files live (default: the repo checkout).
+ROOT = Path(os.getenv("RADAR_HOME") or Path(__file__).resolve().parent.parent)
+# Loaded at import so the file paths below can come from .env too. Real environment variables win.
+load_dotenv(ROOT / ".env")
+
+
+def path_setting(name: str, default: str) -> Path:
+    """A file location from the environment; relative paths are resolved against ROOT."""
+    return ROOT / (os.getenv(name) or default)
+
+
+TEAM_FILE = path_setting("RADAR_TEAM_FILE", "team.json")
+DB_PATH = path_setting("RADAR_DB_PATH", "radar.db")
+GOOGLE_TOKEN_PATH = path_setting("GOOGLE_TOKEN_PATH", "token.json")
+GOOGLE_CREDENTIALS_PATH = path_setting("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 
 
 class ConfigError(Exception):
@@ -79,8 +93,7 @@ def _load_team(path: Path) -> Team:
 
 
 def load() -> Settings:
-    load_dotenv(ROOT / ".env")
-    key_path = ROOT / os.getenv("GITHUB_APP_KEY_PATH", "github-app.pem")
+    key_path = path_setting("GITHUB_APP_KEY_PATH", "github-app.pem")
     if not key_path.exists():
         raise ConfigError(f"Missing GitHub App private key at {key_path}")
     return Settings(
@@ -98,5 +111,5 @@ def load() -> Settings:
         stale_hours=float(os.getenv("STALE_HOURS", "4")),
         precall_minutes=int(os.getenv("PRECALL_MINUTES", "10")),
         poll_minutes=int(os.getenv("POLL_MINUTES", "5")),
-        team=_load_team(ROOT / "team.json"),
+        team=_load_team(TEAM_FILE),
     )

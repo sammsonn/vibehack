@@ -4,7 +4,7 @@ from collections import Counter
 from unittest import mock
 from zoneinfo import ZoneInfo
 
-from radar import calendar_api, llm, ranking, rules, slack_ui
+from radar import calendar_api, llm, ranking, rules, slack_ui, stats
 from radar.config import Member, Settings, Team
 from radar.models import PR, Candidate, Suggestion, Triage
 
@@ -139,6 +139,35 @@ class RenderTest(unittest.TestCase):
         labels = [e["text"]["text"] for b in blocks if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("📅 Block 19:00–19:30 to review", labels)
         self.assertIn("✅ Hand off to Cone", labels)
+
+
+class StatsTest(unittest.TestCase):
+    def rec(self, number, start_h, review_h=None, open_=False):
+        return stats.ReviewRecord(number, "t", "andrei", at(start_h), at(review_h) if review_h else None,
+                                  "cone" if review_h else None, open_)
+
+    def row(self, pr, status, suggested_h, decided_h):
+        return {"pr_number": pr, "status": status, "suggested_at": at(suggested_h).isoformat(),
+                "decided_at": at(decided_h).isoformat() if decided_h else None}
+
+    def test_splits_prs_by_radar_approval_before_first_review(self):
+        records = [
+            self.rec(1, 9, 15),           # no Radar: 6h
+            self.rec(2, 10, 12),          # handed off at 11, reviewed 12: with Radar, 2h
+            self.rec(3, 10, 11),          # approved only after the review happened: without Radar, 1h
+            self.rec(4, 12, open_=True),  # kept, still waiting
+        ]
+        rows = [self.row(2, "handed_off", 10, 11), self.row(3, "blocked", 11, 12), self.row(4, "kept", 13, 14),
+                self.row(4, "superseded", 12, None)]
+        st = stats.compute(records, rows, at(16))
+        self.assertEqual(sorted(st.without_radar), [dt.timedelta(hours=1), dt.timedelta(hours=6)])
+        self.assertEqual(st.with_radar, [dt.timedelta(hours=2)])
+        self.assertEqual(st.still_waiting, [(4, dt.timedelta(hours=4), False)])
+        self.assertEqual(st.radar_prs, {2})
+        self.assertEqual(st.decision_times, [dt.timedelta(hours=1)] * 3)
+        text = stats.render(st, "o/r", 30)
+        self.assertIn("With Radar: *2h 00m* median (n=1)", text)
+        self.assertIn("3 suggested · 2 approved (1 handoff, 1 review block) · 1 kept", text)
 
 
 if __name__ == "__main__":

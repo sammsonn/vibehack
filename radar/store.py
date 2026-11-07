@@ -130,3 +130,8 @@ def fire_once(key: str) -> bool:
     with connect() as c:
         cur = c.execute("INSERT OR IGNORE INTO fired_triggers (key, fired_at) VALUES (?, ?)", (key, _now()))
         return cur.rowcount == 1
+
+
+def all_suggestions() -> list[sqlite3.Row]:
+    with connect() as c:
+        return c.execute("SELECT * FROM suggestions ORDER BY id").fetchall()

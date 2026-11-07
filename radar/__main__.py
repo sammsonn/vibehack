@@ -3,6 +3,7 @@
   python -m radar run                       Slack bot + automatic checks (keep exactly one running)
   python -m radar sweep [--at 16:50]        Post a card now; clicks are handled by the running bot
   python -m radar sweep --dry-run           Print suggestions without posting or storing anything
+  python -m radar stats [--days 30]         Time to first review with vs without Radar, plus decisions
 """
 import argparse
 import datetime as dt
@@ -10,7 +11,7 @@ import logging
 
 from slack_sdk import WebClient
 
-from radar import app, calendar_api, config, slack_ui, store, sweep
+from radar import app, calendar_api, config, slack_ui, stats, store, sweep
 
 
 def _print(ctx: sweep.LeadContext, suggestions, tz: dt.tzinfo) -> None:
@@ -30,6 +31,8 @@ def main() -> None:
     sw = sub.add_parser("sweep", help="post a Radar card now")
     sw.add_argument("--at", help="pretend it is this time (HH:MM today, or ISO timestamp)")
     sw.add_argument("--dry-run", action="store_true", help="print suggestions only")
+    st = sub.add_parser("stats", help="time to first review, with vs without Radar")
+    st.add_argument("--days", type=int, default=30)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -39,6 +42,9 @@ def main() -> None:
 
     if args.command == "run":
         app.run(s)
+        return
+    if args.command == "stats":
+        print(stats.report(s, args.days))
         return
 
     tz = calendar_api.timezone_of(s.team.lead.email)

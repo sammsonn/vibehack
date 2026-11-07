@@ -7,11 +7,12 @@ import threading
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from radar import actions, calendar_api, slack_ui, store, sweep
+from radar import actions, calendar_api, slack_ui, stats, store, sweep
 from radar.config import Settings
 
 log = logging.getLogger(__name__)
-USAGE = "Usage: `/radar sweep [HH:MM]` (the optional time pretends it is that time today, for demos)"
+USAGE = ("Usage: `/radar sweep [HH:MM]` (the optional time pretends it is that time today, for demos) "
+         "or `/radar stats [days]`")
 
 
 def parse_at(value: str | None, tz: dt.tzinfo) -> dt.datetime | None:
@@ -59,6 +60,15 @@ def create_app(s: Settings) -> App:
     @app.command("/radar")
     def on_command(ack, command, respond):
         args = (command.get("text") or "").split()
+        if args and args[0] == "stats":
+            ack()
+            try:
+                days = int(args[1]) if len(args) > 1 else 30
+                respond(response_type="in_channel", text=stats.report(s, days))
+            except Exception as e:
+                log.exception("stats failed")
+                respond(f"⚠️ Stats failed: {e}")
+            return
         if args and args[0] != "sweep":
             ack(USAGE)
             return

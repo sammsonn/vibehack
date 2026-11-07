@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS suggestions (
     decided_by TEXT,
     decided_at TEXT,
     snoozed_until TEXT,
-    result TEXT
+    result TEXT,
+    handed_to TEXT
 );
 CREATE TABLE IF NOT EXISTS fired_triggers (
     key TEXT PRIMARY KEY,
@@ -55,6 +56,9 @@ def connect():
 def init() -> None:
     with connect() as c:
         c.executescript(SCHEMA)
+        columns = {row["name"] for row in c.execute("PRAGMA table_info(suggestions)")}
+        if "handed_to" not in columns:  # databases created before the reviewer picker
+            c.execute("ALTER TABLE suggestions ADD COLUMN handed_to TEXT")
 
 
 def create_card(trigger: str, header: str, suggestions: list[Suggestion]) -> int:
@@ -101,11 +105,12 @@ def claim(sid: int, user: str) -> bool:
         return cur.rowcount == 1
 
 
-def finish(sid: int, status: str, result: str = "", snoozed_until: dt.datetime | None = None) -> None:
+def finish(sid: int, status: str, result: str = "", snoozed_until: dt.datetime | None = None,
+           handed_to: str | None = None) -> None:
     with connect() as c:
         c.execute(
-            "UPDATE suggestions SET status = ?, result = ?, snoozed_until = ?, decided_at = ? WHERE id = ?",
-            (status, result, snoozed_until.isoformat() if snoozed_until else None, _now(), sid),
+            "UPDATE suggestions SET status = ?, result = ?, snoozed_until = ?, decided_at = ?, handed_to = ? WHERE id = ?",
+            (status, result, snoozed_until.isoformat() if snoozed_until else None, _now(), handed_to, sid),
         )
 
 
@@ -135,6 +140,12 @@ def fire_once(key: str) -> bool:
 def all_suggestions() -> list[sqlite3.Row]:
     with connect() as c:
         return c.execute("SELECT * FROM suggestions ORDER BY id").fetchall()
+
+
+def handed_off(pr_number: int) -> list[sqlite3.Row]:
+    with connect() as c:
+        return c.execute("SELECT * FROM suggestions WHERE pr_number = ? AND status = 'handed_off'",
+                         (pr_number,)).fetchall()
 
 
 def pending_by_card() -> dict[int, list[sqlite3.Row]]:

@@ -7,7 +7,7 @@ import threading
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from radar import actions, calendar_api, slack_ui, stats, store, sweep
+from radar import actions, approval_gate, calendar_api, slack_ui, stats, store, sweep
 from radar.config import Settings
 
 log = logging.getLogger(__name__)
@@ -103,6 +103,7 @@ def run(s: Settings) -> None:
     post = lambda card_id: slack_ui.post_card(app.client, s, card_id)  # noqa: E731
     remind = lambda card_id, pending: slack_ui.post_reminder(app.client, s, card_id, pending)  # noqa: E731
     threading.Thread(target=_scheduler, args=(s, post, remind, stop), daemon=True, name="radar-scheduler").start()
+    threading.Thread(target=approval_gate.loop, args=(s, stop), daemon=True, name="radar-gate").start()
     log.info("Review Radar running: checking every %d min, pre-call window %d min", s.poll_minutes, s.precall_minutes)
     try:
         SocketModeHandler(app, s.slack_app_token).start()

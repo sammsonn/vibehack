@@ -2,7 +2,7 @@
 import datetime as dt
 import logging
 
-from radar import calendar_api, github_api, store
+from radar import approval_gate, calendar_api, github_api, store
 from radar.config import Settings
 from radar.models import Candidate, Suggestion
 from radar.slack_ui import SNOOZE_HOURS
@@ -45,7 +45,12 @@ def _approve(s: Settings, sid: int, sg: Suggestion, chosen: Candidate | None = N
     if reviewer:
         github_api.hand_off(pr, lead.github, reviewer.github, _handoff_comment(s, sg, reviewer, tz))
         own_pick = chosen is not None and (sg.reviewer is None or chosen.github != sg.reviewer.github)
-        store.finish(sid, "handed_off", f"Handed off to {reviewer.name}{' (your pick)' if own_pick else ''}")
+        store.finish(sid, "handed_off", f"Handed off to {reviewer.name}{' (your pick)' if own_pick else ''}",
+                     handed_to=reviewer.github)
+        try:
+            approval_gate.sync(s, [sg.pr.number])
+        except Exception:  # the gate loop retries within a minute
+            log.warning("approval gate update for #%s failed", sg.pr.number, exc_info=True)
     elif sg.slot:
         start, end = sg.slot
         now = dt.datetime.now(dt.timezone.utc)

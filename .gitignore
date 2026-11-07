@@ -2,6 +2,7 @@
 .env
 credentials.json
 token.json
+team.json
 
 # Python
 .venv/

@@ -1,0 +1,6 @@
+slack-bolt
+PyGithub
+openai
+python-dotenv
+google-api-python-client
+google-auth-oauthlib

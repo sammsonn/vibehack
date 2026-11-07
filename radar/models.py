@@ -41,7 +41,7 @@ class Candidate:
     def why(self) -> str:
         parts = ["free" if self.free else "busy"]
         if self.file_commits:
-            parts.append(f"{self.file_commits} commits to these files in 90 days")
+            parts.append(f"{self.file_commits} commit{'s' if self.file_commits != 1 else ''} to these files in 90 days")
         parts.append(f"{self.open_reviews} open review{'s' if self.open_reviews != 1 else ''}")
         return ", ".join(parts)
 

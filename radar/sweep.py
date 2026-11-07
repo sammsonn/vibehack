@@ -55,6 +55,7 @@ def build(s: Settings, now: dt.datetime, auto: bool = False,
         prs = [p for p in prs if now - p.waiting_since >= min_wait]
     if auto:
         prs = [p for p in prs if not store.recently_handled(p.number, p.head_sha, now)]
+    prs.sort(key=lambda p: p.waiting_since)  # longest-waiting PR gets the earliest review slot
 
     horizon = now + dt.timedelta(days=3)
     busy = calendar_api.busy_blocks([m.email for m in team.members], now, horizon)

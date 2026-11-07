@@ -32,6 +32,35 @@ def parse_at(value: str | None, tz: dt.tzinfo) -> dt.datetime | None:
     return t if t.tzinfo else t.replace(tzinfo=tz)
 
 
+def handle_command(s: Settings, args: list[str], ack, respond, post) -> None:
+    """/radar sweep [HH:MM] | /radar stats [days]. Slack needs ack() within 3 s, so every branch acknowledges
+    (with a short note only the caller sees) before the slow work, then answers through respond()."""
+    if args and args[0] == "stats":
+        try:
+            days = int(args[1]) if len(args) > 1 else 30
+        except ValueError:
+            ack(USAGE)
+            return
+        ack(f"📊 Crunching the numbers for the last {days} days…")
+        try:
+            respond(response_type="in_channel", text=stats.report(s, days))
+        except Exception as e:
+            log.exception("stats failed")
+            respond(f"⚠️ Stats failed: {e}")
+        return
+    if args and args[0] != "sweep":
+        ack(USAGE)
+        return
+    ack("🛰️ Sweeping…")
+    try:
+        at = parse_at(args[1] if len(args) > 1 else None, google_calendar.timezone_of(s.team.lead.email))
+        if sweep.run(s, post, now=at, trigger="manual") is None:
+            respond("Nothing is waiting on the lead right now.")
+    except Exception as e:
+        log.exception("manual sweep failed")
+        respond(f"⚠️ Sweep failed: {e}")
+
+
 def create_app(s: Settings) -> App:
     app = App(token=s.slack_bot_token)
     lead_id = messages.slack_id(app.client, s.team.lead.email)
@@ -67,27 +96,7 @@ def create_app(s: Settings) -> App:
 
     @app.command("/radar")
     def on_command(ack, command, respond):
-        args = (command.get("text") or "").split()
-        if args and args[0] == "stats":
-            ack()
-            try:
-                days = int(args[1]) if len(args) > 1 else 30
-                respond(response_type="in_channel", text=stats.report(s, days))
-            except Exception as e:
-                log.exception("stats failed")
-                respond(f"⚠️ Stats failed: {e}")
-            return
-        if args and args[0] != "sweep":
-            ack(USAGE)
-            return
-        ack("🛰️ Sweeping…")
-        try:
-            at = parse_at(args[1] if len(args) > 1 else None, google_calendar.timezone_of(s.team.lead.email))
-            if sweep.run(s, post, now=at, trigger="manual") is None:
-                respond("Nothing is waiting on the lead right now.")
-        except Exception as e:
-            log.exception("manual sweep failed")
-            respond(f"⚠️ Sweep failed: {e}")
+        handle_command(s, (command.get("text") or "").split(), ack, respond, post)
 
     return app
 

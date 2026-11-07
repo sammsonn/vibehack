@@ -2,7 +2,9 @@
 import unittest
 
 from radar.core.models import Candidate, Suggestion
-from radar.slack import blocks
+from unittest import mock
+
+from radar.slack import blocks, bot
 from tests.helpers import HIGH, LOW, NOW, TEAM, TZ, at, make_pr
 
 
@@ -23,6 +25,29 @@ class RenderTest(unittest.TestCase):
         labels = [e["text"]["text"] for b in kit if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("📅 Block 19:00–19:30 to review", labels)
         self.assertIn("✅ Hand off to Cone", labels)
+
+
+class CommandTest(unittest.TestCase):
+    def run_command(self, text, report="stats text"):
+        calls = []
+        ack = mock.Mock(side_effect=lambda *a, **k: calls.append(("ack", a)))
+        respond = mock.Mock(side_effect=lambda *a, **k: calls.append(("respond", a, k)))
+        with mock.patch.object(bot.stats, "report", side_effect=lambda s, days: calls.append(("report", days)) or report):
+            bot.handle_command(mock.Mock(), text.split(), ack, respond, post=mock.Mock())
+        return calls
+
+    def test_stats_acknowledges_before_the_slow_report(self):
+        calls = self.run_command("stats 7")
+        self.assertEqual(calls[0], ("ack", ("📊 Crunching the numbers for the last 7 days…",)))
+        self.assertEqual(calls[1], ("report", 7))
+        self.assertEqual(calls[2], ("respond", (), {"response_type": "in_channel", "text": "stats text"}))
+
+    def test_bad_days_gets_usage_without_running_the_report(self):
+        calls = self.run_command("stats abc")
+        self.assertEqual(calls, [("ack", (bot.USAGE,))])
+
+    def test_unknown_subcommand_gets_usage(self):
+        self.assertEqual(self.run_command("hello"), [("ack", (bot.USAGE,))])
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """Posts and updates Radar's Slack messages. Cards are re-rendered from SQLite after every click."""
 import datetime as dt
+import logging
 from functools import cache
 
 from slack_sdk import WebClient
@@ -11,6 +12,8 @@ from radar.integrations import google_calendar
 from radar.services.digest import OUTCOMES, Line
 from radar.slack.blocks import duration, render
 from radar.storage import store
+
+log = logging.getLogger(__name__)
 
 RISK_ICON = {"low": "🟢", "high": "🔴"}
 
@@ -77,6 +80,12 @@ def post_card(client: WebClient, s: Settings, card_id: int) -> None:
     channel = client.conversations_open(users=slack_id(client, lead))["channel"]["id"]
     msg = client.chat_postMessage(channel=channel, text=text, blocks=blocks, unfurl_links=False, unfurl_media=False)
     store.set_card_message(card_id, msg["channel"], msg["ts"])
+    # Grey out the rows this card took over, so the same PR never has live buttons on two cards.
+    for old_id in store.cards_superseded_by(card_id):
+        try:
+            refresh_card(client, s, old_id)
+        except Exception:  # e.g. the old message was deleted; the new card is what matters
+            log.warning("could not update replaced card %s", old_id, exc_info=True)
 
 
 def refresh_card(client: WebClient, s: Settings, card_id: int) -> None:

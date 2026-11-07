@@ -73,10 +73,17 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 CREATE INDEX IF NOT EXISTS llm_usage_at ON llm_usage (at);
 """
 
+def _add_superseded_by(c: sqlite3.Connection) -> None:
+    columns = {row["name"] for row in c.execute("PRAGMA table_info(suggestions)")}
+    if "superseded_by" not in columns:
+        c.execute("ALTER TABLE suggestions ADD COLUMN superseded_by INTEGER REFERENCES cards(id)")
+
+
 MIGRATIONS = [
     lambda c: c.executescript(SCHEMA),
     _add_handed_to,
     lambda c: c.executescript(LLM_USAGE_SCHEMA),
+    _add_superseded_by,
 ]
 
 
@@ -101,13 +108,24 @@ def create_card(trigger: str, header: str, suggestions: list[Suggestion]) -> int
         card_id = c.execute("INSERT INTO cards (created_at, trigger, header) VALUES (?, ?, ?)",
                             (_now(), trigger, header)).lastrowid
         for sg in suggestions:
-            c.execute("UPDATE suggestions SET status = 'superseded' WHERE pr_number = ? AND status = 'pending'",
-                      (sg.pr.number,))
+            c.execute(
+                "UPDATE suggestions SET status = 'superseded', superseded_by = ?, decided_at = ? "
+                "WHERE pr_number = ? AND status = 'pending'",
+                (card_id, _now(), sg.pr.number),
+            )
             c.execute(
                 "INSERT INTO suggestions (card_id, pr_number, head_sha, action, payload, suggested_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (card_id, sg.pr.number, sg.pr.head_sha, sg.action, sg.to_json(), _now()),
             )
     return card_id
+
+
+def cards_superseded_by(card_id: int) -> list[int]:
+    """Older cards that had a pending row taken over by `card_id`: they need re-rendering."""
+    with connect() as c:
+        rows = c.execute("SELECT DISTINCT card_id FROM suggestions WHERE superseded_by = ? ORDER BY card_id",
+                         (card_id,)).fetchall()
+    return [r["card_id"] for r in rows]
 
 
 def set_card_message(card_id: int, channel: str, ts: str) -> None:

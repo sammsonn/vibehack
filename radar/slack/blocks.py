@@ -103,17 +103,25 @@ def _outcome(row, tz: dt.tzinfo) -> str:
         "snoozed": f"⏰ Snoozed by {who} until {_t(row['snoozed_until'], tz)}",
         "stale": f"↩️ Skipped: {result}",
         "failed": f"⚠️ Failed: {result}",
-        "superseded": "↪️ Replaced by a newer card",
+        "superseded": f"↪️ Moved to a newer card at {at}",
     }.get(status, status)
 
 
 def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]]:
     created = dt.datetime.fromisoformat(card["created_at"])
     n = len(rows)
+    moved = sum(1 for row in rows if row["status"] == "superseded")
     text = f"🛰️ Review Radar: {n} PR{'s' if n != 1 else ''} waiting on you"
+    if moved == n:
+        summary = "All PRs on this card moved to a newer card."
+    else:
+        active = n - moved
+        summary = f"{active} PR{'s are' if active != 1 else ' is'} waiting on you."
+        if moved:
+            summary += f" {moved} moved to a newer card."
     blocks: list[dict] = [{
         "type": "section",
-        "text": {"type": "mrkdwn", "text": f"*🛰️ Review Radar* · {card['header']}\n{n} PR{'s are' if n != 1 else ' is'} waiting on you."},
+        "text": {"type": "mrkdwn", "text": f"*🛰️ Review Radar* · {card['header']}\n{summary}"},
     }]
     pending = 0
     for row in rows:
@@ -122,6 +130,12 @@ def render(card, rows: list, tz: dt.tzinfo, team: Team) -> tuple[str, list[dict]
         emoji = "🔴" if tr.risk == "high" else "🟢"
         look = f" Look first: `{tr.look_first}`" if tr.look_first else ""
         blocks.append({"type": "divider"})
+        if row["status"] == "superseded":
+            # Greyed out: one small line, title struck through, no buttons. The newer card has the live version.
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": (
+                f"{emoji} ~<{pr.url}|#{pr.number} {pr.title}>~ · {_outcome(row, tz)}"
+            )[:2900]}]})
+            continue
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": (
             f"{emoji} *<{pr.url}|#{pr.number} {pr.title}>* ({team.display_name(pr.author)}, {duration(created - pr.waiting_since)} waiting)\n"
             f"{tr.summary}\n"

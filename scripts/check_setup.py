@@ -44,8 +44,9 @@ def main() -> None:
         print(f"FREEBUSY {email}: {'ERROR ' + info['errors'][0]['reason'] if info.get('errors') else 'ok'}")
 
     llm = OpenAI(base_url=s.llm_base_url, api_key=s.llm_api_key)
-    reply = llm.chat.completions.create(model=s.llm_model, messages=[{"role": "user", "content": "Reply with OK"}], max_tokens=200)
-    print(f"LLM {s.llm_model}: {reply.choices[0].message.content.strip()}")
+    reply = llm.chat.completions.create(model=s.llm_model, messages=[{"role": "user", "content": "Reply with OK"}], max_tokens=300)
+    content = (reply.choices[0].message.content or "").strip()
+    print(f"LLM {s.llm_model}: {content or 'EMPTY REPLY'}")
 
 
 if __name__ == "__main__":

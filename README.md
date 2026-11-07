@@ -107,5 +107,7 @@ priced at `DEV_HOURLY_EUR`. Model cost uses the real token count of every LLM ca
 
 Automatic triggers (every `POLL_MINUTES`): a card before each of the lead's calendar events (`PRECALL_MINUTES`), and
 for PRs waiting longer than `STALE_HOURS` while the lead is in a meeting. When the lead is free again and a card
-is still unclicked, Radar replies once in the card's thread (PRs reviewed in the meantime are skipped). Every card, suggestion and decision is
+is still unclicked, Radar replies once in the card's thread (PRs reviewed in the meantime are skipped). When a newer card
+takes over a PR, that PR's row on the older card is greyed out right away (no buttons), so a PR is never live on
+two cards. Every card, suggestion and decision is
 logged in `radar.db` (SQLite).

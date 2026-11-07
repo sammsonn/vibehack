@@ -3,6 +3,7 @@
 credentials.json
 token.json
 team.json
+*.pem
 
 # Python
 .venv/

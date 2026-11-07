@@ -34,14 +34,17 @@ class Team:
 
 @dataclass(frozen=True)
 class Settings:
-    github_token: str
+    github_app_id: int
+    github_app_key: str
     live_repo: str
+    github_token: str | None
     before_repo: str | None
     llm_base_url: str
     llm_api_key: str
     llm_model: str
     slack_bot_token: str
     slack_app_token: str
+    google_bot_email: str
     stale_hours: float
     precall_minutes: int
     poll_minutes: int
@@ -72,15 +75,21 @@ def _load_team(path: Path) -> Team:
 
 def load() -> Settings:
     load_dotenv(ROOT / ".env")
+    key_path = ROOT / os.getenv("GITHUB_APP_KEY_PATH", "github-app.pem")
+    if not key_path.exists():
+        raise ConfigError(f"Missing GitHub App private key at {key_path}")
     return Settings(
-        github_token=_require("GITHUB_TOKEN"),
+        github_app_id=int(_require("GITHUB_APP_ID")),
+        github_app_key=key_path.read_text(encoding="utf-8"),
         live_repo=_require("LIVE_REPO"),
+        github_token=os.getenv("GITHUB_TOKEN", "").strip() or None,
         before_repo=os.getenv("BEFORE_REPO", "").strip() or None,
         llm_base_url=_require("LLM_BASE_URL"),
         llm_api_key=_require("LLM_API_KEY"),
         llm_model=_require("LLM_MODEL"),
         slack_bot_token=_require("SLACK_BOT_TOKEN"),
         slack_app_token=_require("SLACK_APP_TOKEN"),
+        google_bot_email=_require("GOOGLE_BOT_EMAIL").lower(),
         stale_hours=float(os.getenv("STALE_HOURS", "4")),
         precall_minutes=int(os.getenv("PRECALL_MINUTES", "10")),
         poll_minutes=int(os.getenv("POLL_MINUTES", "5")),

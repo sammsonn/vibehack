@@ -116,20 +116,22 @@ class HomeViewTest(unittest.TestCase):
         ids = [e["action_id"] for b in view["blocks"] if b["type"] == "actions" for e in b["elements"]]
         self.assertEqual(ids, ["home:refresh"])
 
-    def test_lead_sees_decisions_booked_blocks_and_snoozes(self):
-        snap = snapshot([pr(3, lead=at(9))], pending=[(4, BLOCK), (4, HANDOFF)], snoozed=[(HANDOFF, at(18))],
-                        review_blocks={3: (at(19), at(19, 30))}, lead_status="📅 You're in *Client call* until 17:30")
+    def test_lead_sees_radar_status_inline_in_one_list(self):
+        prs = [pr(3, lead=at(9)), pr(1, lead=at(10)), pr(2, lead=at(11)), pr(4, lead=at(12))]
+        snap = snapshot(prs, pending=[(4, BLOCK)], snoozed=[(HANDOFF, at(18))],
+                        review_blocks={2: (at(19), at(19, 30))}, lead_status="📅 You're in *Client call* until 17:30")
         view = home.render(snap, LEAD, TEAM, TZ, 4, links={4: "https://slack/card4"})
         text = self.texts(view)
-        self.assertIn("*Waiting for your decision* · 2 PRs", text)
-        self.assertIn("🔴 *<https://github.com/o/r/pull/3|#3 PR 3>*\n→ Block *19:00–19:30* to review", text)
-        self.assertIn("→ Hand off to *Cone*", text)
-        self.assertIn("📅 Review block booked 19:00–19:30", text)
-        self.assertIn("📅 Review blocks: #3 19:00–19:30  ·  ⏰ Snoozed: #1 until 18:00", text)
+        self.assertIn("*Waiting on you* · 4 PRs · 1 to decide", text)
+        self.assertIn("#3 PR 3>* (Andrei, *7h 50m waiting*)\n→ Block *19:00–19:30* to review", text)
+        self.assertIn("#1 PR 1>* (Andrei, *6h 50m waiting*)\n⏰ Snoozed until 18:00", text)
+        self.assertIn("#2 PR 2>* (Andrei, *5h 50m waiting*)\n📅 Review block booked 19:00–19:30", text)
+        self.assertIn("#4 PR 4>* (Andrei, *4h 50m waiting*)\n_Not on a card yet: run Sweep now_", text)
+        self.assertNotIn("Waiting for your decision", text)
         self.assertIn("• Calendar: 📅 You're in *Client call* until 17:30", text)  # same line as the card header
-        self.assertNotIn("older than 4h", text)  # #3 waits 7h 50m on the lead, but its block is booked
-        urls = [b["accessory"].get("url") for b in view["blocks"] if "accessory" in b]
-        self.assertEqual(urls.count("https://slack/card4"), 2)
+        self.assertNotIn("#2> on", text)  # #2 waits on the lead, but its block is booked: not a bottleneck
+        buttons = {b["accessory"]["text"]["text"]: b["accessory"].get("url") for b in view["blocks"] if "accessory" in b}
+        self.assertEqual(buttons["Open card"], "https://slack/card4")
         ids = [b["accessory"]["action_id"] for b in view["blocks"] if "accessory" in b]
         self.assertEqual(len(ids), len(set(ids)))  # Slack rejects duplicate action ids
 
@@ -157,7 +159,6 @@ class HomeViewTest(unittest.TestCase):
     def test_empty_queue_and_missing_stats(self):
         text = self.texts(home.render(snapshot([]), LEAD, TEAM, TZ, 4))
         self.assertIn("Nothing is waiting on your review.", text)
-        self.assertIn("Nothing to decide right now", text)
         self.assertIn("None right now.", text)
         self.assertIn("Stats are unavailable", text)
 

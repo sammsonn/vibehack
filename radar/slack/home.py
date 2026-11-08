@@ -62,12 +62,27 @@ def _button(text: str, action_id: str, url: str | None = None, style: str | None
 DIVIDER = {"type": "divider"}
 
 
+def _lead_status(p: OpenPR, snap: Snapshot, tz: dt.tzinfo, pending: dict[int, tuple[int, Suggestion]]) -> str:
+    """Where Radar stands on a PR that waits on the lead: open suggestion, booked block, snooze or nothing yet."""
+    if p.number in pending:
+        return _suggestion(pending[p.number][1], tz, snap.at)
+    if p.number in snap.review_blocks:
+        return f"📅 Review block booked {describe_slot(snap.review_blocks[p.number], tz, snap.at)}"
+    snoozed = next((until for sg, until in snap.snoozed if sg.pr.number == p.number), None)
+    if snoozed:
+        return f"⏰ Snoozed until {snoozed.astimezone(tz):%H:%M}"
+    return "_Not on a card yet: run Sweep now_"
+
+
 def _waiting(snap: Snapshot, viewer: Member, team: Team, is_lead: bool, stale_hours: float,
-             tz: dt.tzinfo) -> list[dict]:
+             tz: dt.tzinfo, links: dict[int, str]) -> list[dict]:
     items = dashboard.waiting_on(snap, viewer.github)
     if not items:
         return [_section("*Waiting on you*\nNothing is waiting on your review.")]
-    blocks = [_section(f"*Waiting on you* · {len(items)} PR{_s(len(items))}")]
+    pending = {sg.pr.number: (card_id, sg) for card_id, sg in snap.pending} if is_lead else {}
+    to_decide = sum(1 for p, _ in items if p.number in pending)
+    title = f"*Waiting on you* · {len(items)} PR{_s(len(items))}"
+    blocks = [_section(title + (f" · {to_decide} to decide" if to_decide else ""))]
     for p, wait in items[:MAX_ROWS]:
         tr = snap.triage.get(p.number)
         waited = f"*{duration(wait)} waiting*" if wait.total_seconds() >= stale_hours * 3600 else f"{duration(wait)} waiting"
@@ -76,9 +91,12 @@ def _waiting(snap: Snapshot, viewer: Member, team: Team, is_lead: bool, stale_ho
         if tr:
             look = f" Look first: `{tr.look_first}`" if tr.look_first else ""
             lines.append(f"*{tr.risk.capitalize()} risk:* {tr.risk_reason.rstrip('.')}.{look}")
-        if is_lead and p.number in snap.review_blocks:
-            lines.append(f"📅 Review block booked {describe_slot(snap.review_blocks[p.number], tz, snap.at)}")
-        blocks.append(_section("\n".join(lines), _button("Review →", f"home:open:{p.number}", url=f"{p.url}/files")))
+        if is_lead:
+            lines.append(_lead_status(p, snap, tz, pending))
+        link = links.get(pending[p.number][0]) if p.number in pending else None
+        button = (_button("Open card", f"home:open:card:{p.number}", url=link) if link
+                  else _button("Review →", f"home:open:{p.number}", url=f"{p.url}/files"))
+        blocks.append(_section("\n".join(lines), button))
     if len(items) > MAX_ROWS:
         blocks.append(_context(f"+{len(items) - MAX_ROWS} more"))
     return blocks
@@ -90,30 +108,6 @@ def _suggestion(sg: Suggestion, tz: dt.tzinfo, now: dt.datetime) -> str:
     if sg.slot:
         return f"→ Block *{describe_slot(sg.slot, tz, now)}* to review"
     return "→ No free slot left in working hours"
-
-
-def _decisions(snap: Snapshot, tz: dt.tzinfo, links: dict[int, str]) -> list[dict]:
-    if not snap.pending:
-        blocks = [_section("*Waiting for your decision*\nNothing to decide right now.")]
-    else:
-        blocks = [_section(f"*Waiting for your decision* · {len(snap.pending)} PR{_s(len(snap.pending))}")]
-    for card_id, sg in snap.pending[:MAX_ROWS]:
-        link = links.get(card_id)
-        blocks.append(_section(
-            f"{RISK_ICON.get(sg.triage.risk, '')} *<{sg.pr.url}|#{sg.pr.number} {sg.pr.title}>*\n"
-            f"{_suggestion(sg, tz, snap.at)}",
-            _button("Open card", f"home:open:card{card_id}:{sg.pr.number}", url=link) if link else None,
-        ))
-    extra = []
-    if snap.review_blocks:
-        booked = sorted(snap.review_blocks.items(), key=lambda kv: kv[1])
-        extra.append("📅 Review blocks: " + ", ".join(f"#{n} {describe_slot(b, tz, snap.at)}" for n, b in booked))
-    if snap.snoozed:
-        extra.append("⏰ Snoozed: " + ", ".join(f"#{sg.pr.number} until {until.astimezone(tz):%H:%M}"
-                                               for sg, until in snap.snoozed))
-    if extra:
-        blocks.append(_context("  ·  ".join(extra)))
-    return blocks
 
 
 def _my_pr_line(p: OpenPR, snap: Snapshot, team: Team) -> str:
@@ -235,10 +229,8 @@ def render(snap: Snapshot, viewer: Member, team: Team, tz: dt.tzinfo, stale_hour
         _context(f"{'Engineering lead' if is_lead else 'Developer'} · updated {snap.at.astimezone(tz):%H:%M}"),
         {"type": "actions", "elements": buttons},
         DIVIDER,
-        *_waiting(snap, viewer, team, is_lead, stale_hours, tz),
+        *_waiting(snap, viewer, team, is_lead, stale_hours, tz, links or {}),
     ]
-    if is_lead:
-        blocks += [DIVIDER, *_decisions(snap, tz, links or {})]
     blocks += [
         DIVIDER,
         *_my_load(snap, viewer, team, is_lead, loads, tz),

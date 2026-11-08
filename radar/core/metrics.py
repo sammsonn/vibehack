@@ -104,7 +104,7 @@ def savings(st: Stats, *, fallback_baseline_hours: float, blocked_cost_factor: f
         source = f"median without Radar, n={len(st.without_radar)}"
     else:
         baseline = dt.timedelta(hours=fallback_baseline_hours)
-        source = "BASELINE_WAIT_HOURS from the interview"
+        source = ""  # placeholder baseline: not worth naming in the footnote
     avoided = sum((max(dt.timedelta(0), baseline - wait) for wait in st.with_radar), dt.timedelta(0))
     dev_hours = avoided.total_seconds() / 3600 * blocked_cost_factor
     model_usd = prompt_tokens / 1e6 * usd_per_m_input + completion_tokens / 1e6 * usd_per_m_output
@@ -118,10 +118,11 @@ def _usd(value: float) -> str:
 
 def savings_lines(sv: Savings, days: int) -> list[str]:
     period = "this week" if days == 7 else f"in the last {days} days"
+    source = f" ({sv.baseline_source})" if sv.baseline_source else ""
     return [
         f"💰 *Saved ~{sv.dev_hours:.1f} developer-hours {period} ≈ €{sv.eur:,.0f}* vs ~{_usd(sv.model_usd)} model cost",
         f"_{sv.prs} PR{'s' if sv.prs != 1 else ''} reviewed after a Radar action · {fmt(sv.wait_avoided)} of waiting avoided "
-        f"vs the {fmt(sv.baseline)} baseline ({sv.baseline_source}) × {sv.factor:g} blocked-cost factor × €{sv.hourly_eur:g}/h · "
+        f"vs the {fmt(sv.baseline)} baseline{source} × {sv.factor:g} blocked-cost factor × €{sv.hourly_eur:g}/h · "
         f"{sv.tokens:,} LLM tokens at {_usd(sv.usd_per_m_input)}/{_usd(sv.usd_per_m_output)} per 1M in/out_",
     ]
 

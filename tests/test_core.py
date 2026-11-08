@@ -149,7 +149,8 @@ class SavingsTest(unittest.TestCase):
 
     def test_falls_back_to_interview_baseline(self):
         sv = self.savings(self.stats([10], [2]))
-        self.assertEqual((sv.baseline, sv.baseline_source), (dt.timedelta(hours=8), "BASELINE_WAIT_HOURS from the interview"))
+        self.assertEqual((sv.baseline, sv.baseline_source), (dt.timedelta(hours=8), ""))
+        self.assertNotIn("()", metrics.savings_lines(sv, 7)[1])
         self.assertAlmostEqual(sv.dev_hours, 1.5)
 
     def test_buy_line_projects_model_cost_to_a_month(self):

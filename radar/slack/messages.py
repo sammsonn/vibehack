@@ -5,11 +5,13 @@ from functools import cache
 
 from slack_sdk import WebClient
 
-from radar.config import Settings
+from radar.config import Member, Settings
 from radar.core import schedule
 from radar.core.models import Suggestion
 from radar.integrations import google_calendar
+from radar.services import dashboard
 from radar.services.digest import OUTCOMES, Line
+from radar.slack import home
 from radar.slack.blocks import duration, render
 from radar.storage import store
 
@@ -21,6 +23,32 @@ RISK_ICON = {"low": "🟢", "high": "🔴"}
 @cache
 def slack_id(client: WebClient, email: str) -> str:
     return client.users_lookupByEmail(email=email)["user"]["id"]
+
+
+@cache
+def _email_of(client: WebClient, user_id: str) -> str:
+    return (client.users_info(user=user_id)["user"]["profile"].get("email") or "").lower()
+
+
+def member_for(client: WebClient, s: Settings, user_id: str) -> Member | None:
+    email = _email_of(client, user_id)
+    return next((m for m in s.team.members if m.email == email), None) if email else None
+
+
+def publish_home(client: WebClient, s: Settings, user_id: str, force: bool = False) -> None:
+    """Renders the Radar dashboard into the user's App Home tab."""
+    member = member_for(client, s, user_id)
+    if member is None:
+        view = home.message_view("You're not on the Radar team yet. Ask the lead to add your GitHub login and "
+                                 "Slack email to `team.json`.")
+    else:
+        try:
+            snap = dashboard.snapshot(s, force=force)
+            view = home.render(snap, member, s.team, google_calendar.timezone_of(s.team.lead.email), s.stale_hours)
+        except Exception as e:
+            log.exception("dashboard failed for %s", user_id)
+            view = home.message_view(f"⚠️ The dashboard could not load: {str(e)[:200]}")
+    client.views_publish(user_id=user_id, view=view)
 
 
 def _dm(client: WebClient, email: str, text: str) -> None:

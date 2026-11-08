@@ -98,6 +98,22 @@ under the line prints every number used. `/radar stats 7` says "this week"; othe
 monthly cost = `RADAR_HOSTING_USD_PER_MONTH` + the real model cost for the period projected to 30 days. Default: CodeRabbit Team, $48/user/month billed annually (coderabbit.ai/pricing, November 2026),
 the tier that includes PR triage; its $24 Essentials tier only reviews code.
 
+## The dashboard: Slack App Home
+
+Open the Radar app in Slack and pick the **Home** tab. It is rebuilt every time the tab opens (data cached 60 s,
+the number 10 min; **🔄 Refresh** forces a reload).
+
+- **Every developer:** *👀 Waiting on you* (PRs where you're a requested reviewer, longest first, 🟢/🟡/🔴 by wait
+  vs `STALE_HOURS`, with a wait bar and a *Review →* button), *📊 Your load* (open review requests vs the busiest
+  teammate, calendar free/busy, your own open PRs and who they wait on) and *🤝 Handed to you* (Radar handoffs from the
+  lead in the last 7 days: waiting, reviewed or closed).
+- **The lead also sees:** *👥 Team load* (review requests, own PRs, free/busy and oldest wait per person),
+  *🚧 Bottlenecks* (requests older than `STALE_HOURS`, one person holding half or more of all requests, busy people
+  with reviews waiting), *💰 The number* for the last 7 days (hours saved, time to first review with vs without Radar
+  as bars, decisions) and a **🛰️ Sweep now** button.
+
+Code: `core/dashboard.py` (pure math), `services/dashboard.py` (snapshot + caches), `slack/home.py` (Block Kit view).
+
 ## Code layout
 
 Each layer only imports from the layers listed after it, so the core logic is testable without any network.
@@ -133,7 +149,7 @@ tests/                   one file per layer + helpers.py fixtures; external serv
 | Service | Setup |
 |---|---|
 | **GitHub App** | Installed on the live repo with *Pull requests: read & write*, *Commit statuses: read & write*, *Contents: read*, *Metadata: read*. Download its private key as `github-app.pem`. Every team member must be a collaborator. |
-| **Slack app** | **Socket Mode on** (app-level token `xapp-…` with `connections:write`). Bot scopes: `chat:write`, `im:write`, `commands`, `users:read`, `users:read.email`. Interactivity on. Slash command `/radar` (usage hint `sweep [HH:MM] \| stats [days]`). Reinstall the app after changing scopes or commands. Everyone in `team.json` must be in the workspace with the same email. |
+| **Slack app** | **Socket Mode on** (app-level token `xapp-…` with `connections:write`). Bot scopes: `chat:write`, `im:write`, `commands`, `users:read`, `users:read.email`. Interactivity on. Slash command `/radar` (usage hint `sweep [HH:MM] \| stats [days]`). **App Home:** turn on the *Home Tab* and subscribe to the bot event `app_home_opened` (Event Subscriptions). Reinstall the app after changing scopes or commands. Everyone in `team.json` must be in the workspace with the same email. |
 | **Google** | A Google account for the bot, a Cloud project with the Calendar API and a *Desktop* OAuth client saved as `credentials.json`. The lead shares his calendar with the bot with *Make changes to events*; teammates share at least *See only free/busy*. Calendars the bot can't read count as busy. |
 | **LLM** | Any OpenAI-compatible API. Tested with `openai/gpt-oss-120b` on Featherless; reasoning models need the generous `max_tokens` Radar uses. |
 

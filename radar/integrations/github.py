@@ -48,6 +48,19 @@ def _requested_at(p: PullRequest, login: str) -> dt.datetime | None:
     return latest
 
 
+def request_times(p: PullRequest) -> dict[str, dt.datetime]:
+    """When each currently requested reviewer (lowercase login) was last asked; PR creation if no event says."""
+    requested = _requested_logins(p)
+    if not requested:
+        return {}
+    times: dict[str, dt.datetime] = {}
+    for e in PaginatedList(IssueEvent, p._requester, f"{p.issue_url}/events", None):
+        reviewer = getattr(e, "requested_reviewer", None)
+        if e.event == "review_requested" and reviewer and reviewer.login.lower() in requested:
+            times[reviewer.login.lower()] = e.created_at
+    return {login: times.get(login, p.created_at) for login in requested}
+
+
 def open_prs(repo: Repository) -> list[PullRequest]:
     return list(repo.get_pulls(state="open"))
 

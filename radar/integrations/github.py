@@ -65,6 +65,11 @@ def open_prs(repo: Repository) -> list[PullRequest]:
     return list(repo.get_pulls(state="open"))
 
 
+def commit_status(repo: Repository, sha: str, context: str) -> str | None:
+    """Latest state of the `context` status on a commit, or None if it was never posted."""
+    return next((st.state for st in repo.get_commit(sha).get_statuses() if st.context == context), None)
+
+
 def open_review_counts(pulls: list[PullRequest]) -> Counter:
     return Counter(login for p in pulls for login in _requested_logins(p))
 

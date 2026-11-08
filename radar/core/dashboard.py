@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from radar.config import Team
 from radar.core import metrics, schedule
-from radar.core.models import Suggestion
+from radar.core.models import Suggestion, Triage
 
 
 @dataclass(frozen=True)
@@ -50,6 +50,33 @@ class Snapshot:
     stats: metrics.Stats | None = None
     savings: metrics.Savings | None = None
     stats_days: int = 7
+    buy: str | None = None
+    pending: list[tuple[int, Suggestion]] = field(default_factory=list)  # (card id, suggestion) awaiting the lead
+    snoozed: list[tuple[Suggestion, dt.datetime]] = field(default_factory=list)
+    triage: dict[int, Triage] = field(default_factory=dict)  # PR -> Radar's latest risk read
+    review_blocks: dict[int, schedule.Block] = field(default_factory=dict)  # PR -> booked block in the lead's calendar
+    lead_status: str = ""
+    gates: dict[int, str] = field(default_factory=dict)  # PR -> radar/approval state
+
+
+def pending(rows) -> list[tuple[int, Suggestion]]:
+    return [(row["card_id"], Suggestion.from_json(row["payload"])) for row in rows if row["status"] == "pending"]
+
+
+def snoozed(rows, now: dt.datetime) -> list[tuple[Suggestion, dt.datetime]]:
+    """PRs still snoozed at `now`, latest snooze per PR, soonest to wake first."""
+    latest: dict[int, tuple[Suggestion, dt.datetime]] = {}
+    for row in rows:
+        if row["status"] == "snoozed" and row["snoozed_until"]:
+            until = dt.datetime.fromisoformat(row["snoozed_until"])
+            if until > now:
+                latest[row["pr_number"]] = (Suggestion.from_json(row["payload"]), until)
+    return sorted(latest.values(), key=lambda su: su[1])
+
+
+def latest_triage(rows) -> dict[int, Triage]:
+    """Radar's most recent risk read per PR. rows are ordered oldest first."""
+    return {row["pr_number"]: Suggestion.from_json(row["payload"]).triage for row in rows}
 
 
 def waiting_on(snap: Snapshot, login: str) -> list[tuple[OpenPR, dt.timedelta]]:
@@ -79,11 +106,13 @@ def team_load(snap: Snapshot, team: Team) -> list[Load]:
     return sorted(loads, key=lambda ld: (-ld.reviews, ld.name))
 
 
-def stale(snap: Snapshot, hours: float) -> list[tuple[OpenPR, str, dt.timedelta]]:
-    """(PR, reviewer login, wait) for every review request older than `hours`, longest first."""
+def stale(snap: Snapshot, hours: float, lead: str = "") -> list[tuple[OpenPR, str, dt.timedelta]]:
+    """(PR, reviewer login, wait) for every review request older than `hours`, longest first. Requests on the
+    `lead` for PRs with a booked review block are decided, so they don't count."""
     limit = dt.timedelta(hours=hours)
     result = [(p, login, snap.at - since) for p in snap.prs if not p.draft
-              for login, since in p.requested.items() if snap.at - since >= limit]
+              for login, since in p.requested.items() if snap.at - since >= limit
+              and not (login == lead.lower() and p.number in snap.review_blocks)]
     return sorted(result, key=lambda r: -r[2])
 
 

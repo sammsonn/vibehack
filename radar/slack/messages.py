@@ -35,6 +35,23 @@ def member_for(client: WebClient, s: Settings, user_id: str) -> Member | None:
     return next((m for m in s.team.members if m.email == email), None) if email else None
 
 
+@cache
+def _permalink(client: WebClient, channel: str, ts: str) -> str:
+    return client.chat_getPermalink(channel=channel, message_ts=ts)["permalink"]
+
+
+def _card_links(client: WebClient, card_ids: set[int]) -> dict[int, str]:
+    links = {}
+    for card_id in card_ids:
+        card = store.card(card_id)
+        if card and card["ts"]:
+            try:
+                links[card_id] = _permalink(client, card["channel"], card["ts"])
+            except Exception:
+                log.warning("no permalink for card %s", card_id, exc_info=True)
+    return links
+
+
 def publish_home(client: WebClient, s: Settings, user_id: str, force: bool = False) -> None:
     """Renders the Radar dashboard into the user's App Home tab."""
     member = member_for(client, s, user_id)
@@ -44,7 +61,9 @@ def publish_home(client: WebClient, s: Settings, user_id: str, force: bool = Fal
     else:
         try:
             snap = dashboard.snapshot(s, force=force)
-            view = home.render(snap, member, s.team, google_calendar.timezone_of(s.team.lead.email), s.stale_hours)
+            links = _card_links(client, {cid for cid, _ in snap.pending}) if member == s.team.lead else {}
+            view = home.render(snap, member, s.team, google_calendar.timezone_of(s.team.lead.email), s.stale_hours,
+                               links)
         except Exception as e:
             log.exception("dashboard failed for %s", user_id)
             view = home.message_view(f"⚠️ The dashboard could not load: {str(e)[:200]}")

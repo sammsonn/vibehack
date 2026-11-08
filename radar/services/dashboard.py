@@ -72,6 +72,7 @@ def collect(s: Settings, now: dt.datetime) -> Snapshot:
     horizon = now + dt.timedelta(hours=CALENDAR_HOURS)
     busy = google_calendar.busy_blocks([m.email for m in s.team.members], now, horizon)
     rows = store.all_suggestions()
+    on_lead = {p.number for p in prs if not p.draft and lead.github.lower() in p.requested}
     st, sv, buy = _cached("stats", STATS_SECONDS, lambda: _number(s, now))
     return Snapshot(
         at=now,
@@ -83,8 +84,8 @@ def collect(s: Settings, now: dt.datetime) -> Snapshot:
         savings=sv,
         stats_days=STATS_DAYS,
         buy=buy,
-        pending=dashboard.pending(rows),
-        snoozed=dashboard.snoozed(rows, now),
+        pending=dashboard.pending(rows, on_lead),
+        snoozed=dashboard.snoozed(rows, now, on_lead),
         triage=dashboard.latest_triage(rows),
         review_blocks=google_calendar.upcoming_review_blocks(lead.email, now),
         lead_status=sweep.lead_context(s, now, busy[lead.email]).header,

@@ -64,9 +64,14 @@ class CoreTest(unittest.TestCase):
     def test_pending_snoozed_and_latest_triage(self):
         rows = [row(HANDOFF, "snoozed", snoozed_until=at(18)), row(BLOCK, "snoozed", snoozed_until=at(16)),
                 row(BLOCK, "pending", card_id=4)]
-        self.assertEqual([(cid, sg.pr.number) for cid, sg in dashboard.pending(rows)], [(4, 3)])
-        self.assertEqual([(sg.pr.number, until) for sg, until in dashboard.snoozed(rows, NOW)], [(1, at(18))])
+        self.assertEqual([(cid, sg.pr.number) for cid, sg in dashboard.pending(rows, {1, 3})], [(4, 3)])
+        self.assertEqual([(sg.pr.number, until) for sg, until in dashboard.snoozed(rows, NOW, {1, 3})], [(1, at(18))])
         self.assertEqual(dashboard.latest_triage(rows)[3].risk, "high")
+
+    def test_closed_or_reviewed_prs_leave_the_decision_list(self):
+        rows = [row(BLOCK, "pending", card_id=4), row(HANDOFF, "snoozed", snoozed_until=at(18))]
+        self.assertEqual(dashboard.pending(rows, set()), [])  # #3 no longer waits on the lead
+        self.assertEqual(dashboard.snoozed(rows, NOW, set()), [])
 
     def test_handoff_state_follows_github(self):
         rows = [handoff_row(1, "cone", at(15)), handoff_row(2, "andrei", at(15)), handoff_row(9, "cone", at(14)),

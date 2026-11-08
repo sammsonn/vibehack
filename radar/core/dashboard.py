@@ -59,15 +59,17 @@ class Snapshot:
     gates: dict[int, str] = field(default_factory=dict)  # PR -> radar/approval state
 
 
-def pending(rows) -> list[tuple[int, Suggestion]]:
-    return [(row["card_id"], Suggestion.from_json(row["payload"])) for row in rows if row["status"] == "pending"]
+def pending(rows, waiting: set[int]) -> list[tuple[int, Suggestion]]:
+    """Unclicked card suggestions for PRs that still wait on the lead; closed or reviewed PRs drop out."""
+    return [(row["card_id"], Suggestion.from_json(row["payload"])) for row in rows
+            if row["status"] == "pending" and row["pr_number"] in waiting]
 
 
-def snoozed(rows, now: dt.datetime) -> list[tuple[Suggestion, dt.datetime]]:
-    """PRs still snoozed at `now`, latest snooze per PR, soonest to wake first."""
+def snoozed(rows, now: dt.datetime, waiting: set[int]) -> list[tuple[Suggestion, dt.datetime]]:
+    """PRs still snoozed at `now` that still wait on the lead, latest snooze per PR, soonest to wake first."""
     latest: dict[int, tuple[Suggestion, dt.datetime]] = {}
     for row in rows:
-        if row["status"] == "snoozed" and row["snoozed_until"]:
+        if row["status"] == "snoozed" and row["snoozed_until"] and row["pr_number"] in waiting:
             until = dt.datetime.fromisoformat(row["snoozed_until"])
             if until > now:
                 latest[row["pr_number"]] = (Suggestion.from_json(row["payload"]), until)

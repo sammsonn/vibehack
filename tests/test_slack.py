@@ -127,6 +127,16 @@ class CommandTest(unittest.TestCase):
     def test_unknown_subcommand_gets_usage(self):
         self.assertEqual(self.run_command("hello"), [("ack", (bot.USAGE,))])
 
+    def test_stats_window_reports_that_window_only(self):
+        ack, respond = mock.Mock(), mock.Mock()
+        with mock.patch.object(bot.google_calendar, "timezone_of", return_value=TZ), \
+             mock.patch.object(bot.stats, "report", return_value="window text") as report:
+            bot.handle_command(mock.Mock(), ["stats", "14:00-17:30"], ack, respond, post=mock.Mock())
+        ack.assert_called_once_with("📊 Crunching the numbers for 14:00–17:30…")
+        kwargs = report.call_args.kwargs
+        self.assertEqual((kwargs["since"].hour, kwargs["since"].minute, kwargs["until"].hour), (14, 0, 17))
+        respond.assert_called_once_with(response_type="in_channel", text="window text")
+
 
 if __name__ == "__main__":
     unittest.main()

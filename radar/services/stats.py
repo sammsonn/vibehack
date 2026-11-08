@@ -7,7 +7,7 @@ from github.Repository import Repository
 
 from radar.config import Settings
 from radar.core.metrics import ReviewRecord, Savings, Stats, buy_line, compute, render, savings
-from radar.integrations import github
+from radar.integrations import github, google_calendar
 from radar.storage import store
 
 
@@ -45,13 +45,21 @@ def fetch(repo: Repository, since: dt.datetime) -> list[ReviewRecord]:
     return records
 
 
-def number(s: Settings, days: int = 30, now: dt.datetime | None = None) -> tuple[Stats, Savings, str]:
-    """(stats, savings, repo full name) for the last `days`."""
+def number(s: Settings, days: int = 30, now: dt.datetime | None = None,
+           since: dt.datetime | None = None, until: dt.datetime | None = None) -> tuple[Stats, Savings, str]:
+    """(stats, savings, repo full name) for the last `days`, or for an explicit since/until window (e.g. one
+    pilot phase). PRs opened after `until` are left out."""
     now = now or dt.datetime.now(dt.timezone.utc)
     store.init()
     repo = github.live_repo(s)
-    since = now - dt.timedelta(days=days)
-    st = compute(fetch(repo, since), store.all_suggestions(), now)
+    window = since is not None
+    until = until or now
+    since = since or now - dt.timedelta(days=days)
+    records = [r for r in fetch(repo, since) if r.start <= until]
+    rows = store.all_suggestions()
+    if window:
+        rows = [r for r in rows if since <= dt.datetime.fromisoformat(r["suggested_at"]) <= until]
+    st = compute(records, rows, until)
     usage = store.llm_usage_since(since)
     sv = savings(
         st,
@@ -66,8 +74,17 @@ def number(s: Settings, days: int = 30, now: dt.datetime | None = None) -> tuple
     return st, sv, repo.full_name
 
 
-def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
-    st, sv, repo_name = number(s, days, now)
-    buy = buy_line(s.buy_tool_name, s.buy_tool_usd_per_seat, len(s.team.members), sv.model_usd, days,
+def report(s: Settings, days: int = 30, now: dt.datetime | None = None,
+           since: dt.datetime | None = None, until: dt.datetime | None = None) -> str:
+    now = now or dt.datetime.now(dt.timezone.utc)
+    st, sv, repo_name = number(s, days, now, since, until)
+    period, window_days = None, days
+    if since is not None:
+        until = until or now
+        tz = google_calendar.timezone_of(s.team.lead.email)
+        a, b = since.astimezone(tz), until.astimezone(tz)
+        period = f"{a:%d %b %H:%M}–{b:%H:%M}" if a.date() == b.date() else f"{a:%d %b %H:%M}–{b:%d %b %H:%M}"
+        window_days = max((until - since).total_seconds() / 86400, 1 / 24)
+    buy = buy_line(s.buy_tool_name, s.buy_tool_usd_per_seat, len(s.team.members), sv.model_usd, window_days,
                    s.hosting_usd_per_month)
-    return render(st, repo_name, days, sv, buy)
+    return render(st, repo_name, days, sv, buy, period=period)

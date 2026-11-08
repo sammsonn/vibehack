@@ -17,8 +17,9 @@ from radar.slack import messages
 from radar.storage import store
 
 log = logging.getLogger(__name__)
-USAGE = ("Usage: `/radar sweep [HH:MM]` (the optional time pretends it is that time today, for demos) "
-         "or `/radar stats [days]`")
+USAGE = ("Usage: `/radar sweep [HH:MM]` (the optional time pretends it is that time today, for demos), "
+         "`/radar stats [days]` or `/radar stats HH:MM-HH:MM` (a window today, e.g. one pilot phase)")
+WINDOW = re.compile(r"(\d{1,2}:\d{2})-(\d{1,2}:\d{2})")
 
 
 def parse_at(value: str | None, tz: dt.tzinfo) -> dt.datetime | None:
@@ -36,6 +37,17 @@ def handle_command(s: Settings, args: list[str], ack, respond, post) -> None:
     """/radar sweep [HH:MM] | /radar stats [days]. Slack needs ack() within 3 s, so every branch acknowledges
     (with a short note only the caller sees) before the slow work, then answers through respond()."""
     if args and args[0] == "stats":
+        window = WINDOW.fullmatch(args[1]) if len(args) > 1 else None
+        if window:
+            ack(f"📊 Crunching the numbers for {window[1]}–{window[2]}…")
+            try:
+                tz = google_calendar.timezone_of(s.team.lead.email)
+                text = stats.report(s, since=parse_at(window[1], tz), until=parse_at(window[2], tz))
+                respond(response_type="in_channel", text=text)
+            except Exception as e:
+                log.exception("stats failed")
+                respond(f"⚠️ Stats failed: {e}")
+            return
         try:
             days = int(args[1]) if len(args) > 1 else 30
         except ValueError:

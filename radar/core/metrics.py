@@ -116,8 +116,11 @@ def _usd(value: float) -> str:
     return f"${value:.2f}" if value >= 0.01 or value == 0 else f"${value:.3f}"
 
 
-def savings_lines(sv: Savings, days: int) -> list[str]:
-    period = "this week" if days == 7 else f"in the last {days} days"
+def savings_lines(sv: Savings, days: int, period: str | None = None) -> list[str]:
+    if period:
+        period = f"in {period}"
+    else:
+        period = "this week" if days == 7 else f"in the last {days} days"
     source = f" ({sv.baseline_source})" if sv.baseline_source else ""
     return [
         f"💰 *Saved ~{sv.dev_hours:.1f} developer-hours {period} ≈ €{sv.eur:,.0f}* vs ~{_usd(sv.model_usd)} model cost",
@@ -127,7 +130,7 @@ def savings_lines(sv: Savings, days: int) -> list[str]:
     ]
 
 
-def buy_line(tool: str, usd_per_seat: float, seats: int, model_usd: float, days: int, hosting_usd: float) -> str:
+def buy_line(tool: str, usd_per_seat: float, seats: int, model_usd: float, days: float, hosting_usd: float) -> str:
     """The decision in one line: a per-seat tool for everyone who opens PRs vs Radar's monthly cost
     (hosting + model usage projected from the stats window to a 30-day month)."""
     model_month = model_usd * 30 / days if days else model_usd
@@ -138,14 +141,16 @@ def buy_line(tool: str, usd_per_seat: float, seats: int, model_usd: float, days:
     )
 
 
-def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None, buy: str | None = None) -> str:
+def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None, buy: str | None = None,
+           period: str | None = None) -> str:
+    """period: label for an explicit window (e.g. "08 Nov 14:00–17:30"); defaults to the last `days`."""
     def line(label: str, values: list[dt.timedelta]) -> str:
         return f"• {label}: *{fmt(median(values))}* median (n={len(values)})"
 
     c = st.status_counts
     suggested = sum(c.values()) - c["superseded"]
     lines = [
-        f"*🛰️ Review Radar stats* · `{repo_name}` · last {days} days",
+        f"*🛰️ Review Radar stats* · `{repo_name}` · {period or f'last {days} days'}",
         "*Time to first review* (opened → first review by someone other than the author, bots excluded)",
         line("Without Radar", st.without_radar),
         line("With Radar", st.with_radar),
@@ -161,7 +166,7 @@ def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None, buy:
         f"• Lead's time from card to decision: *{fmt(median(st.decision_times))}* median",
     ]
     if sv:
-        lines += savings_lines(sv, days)
+        lines += savings_lines(sv, days, period)
     if buy:
         lines.append(buy)
     return "\n".join(lines)

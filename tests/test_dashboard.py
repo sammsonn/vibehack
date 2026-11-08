@@ -87,26 +87,25 @@ class HomeViewTest(unittest.TestCase):
         return "\n".join(out)
 
     def test_bar(self):
-        self.assertEqual(home.bar(0, 4, "🟩", 4), "⬜⬜⬜⬜")
-        self.assertEqual(home.bar(2, 4, "🟩", 4), "🟩🟩⬜⬜")
-        self.assertEqual(home.bar(9, 4, "🟩", 4), "🟩🟩🟩🟩")
-        self.assertEqual(home.bar(0.1, 10, "🟩", 4), "🟩⬜⬜⬜")  # anything above zero shows
-        self.assertEqual(home.load_bar(1), "🟩⬜⬜⬜⬜")  # fixed scale: one review is not a full bar
-        self.assertEqual(home.load_bar(6), "🟥🟥🟥🟥🟥")
+        self.assertEqual(home.bar(0, 4, 4), "▱▱▱▱")
+        self.assertEqual(home.bar(2, 4, 4), "▰▰▱▱")
+        self.assertEqual(home.bar(9, 4, 4), "▰▰▰▰")
+        self.assertEqual(home.bar(0.1, 10, 4), "▰▱▱▱")  # anything above zero shows
 
     def test_developer_sees_own_queue_and_handoffs_but_not_team_sections(self):
-        snap = snapshot([pr(1, author="cone", andrei=at(12)), pr(5, author="andrei", cone=at(15))],
+        snap = snapshot([pr(1, author="cone", andrei=at(12)), pr(5, author="andrei", cone=at(15)),
+                         pr(6, author="andrei")],
                         handoffs=[dashboard.Handoff(1, "PR 1", "u", "andrei", at(12), "waiting")],
-                        triage={1: LOW}, gates={5: "pending"})
+                        triage={1: LOW}, gates={5: "pending", 6: "success"})
         view = home.render(snap, ANDREI, TEAM, TZ, 4)
         text = self.texts(view)
-        self.assertIn("👀 Waiting on you · 1", text)
-        self.assertIn("*<https://github.com/o/r/pull/1|#1 PR 1>*  ·  🟢 Low risk", text)
-        self.assertIn("⏱️ *4h 50m* 🟥🟥🟥🟥🟥", text)  # 4h 50m > 4h stale
-        self.assertIn("👉 Look first: `README.md`", text)
-        self.assertIn("#5 PR 5> · waiting on Cone 1h 50m · 🔒 needs approval", text)
-        self.assertIn("from Samson", text)
-        self.assertIn("waiting on your review", text)
+        self.assertIn("*Waiting on you* · 1 PR", text)
+        self.assertIn("🟢 *<https://github.com/o/r/pull/1|#1 PR 1>* (Cone, *4h 50m waiting*)", text)  # over 4h: bold
+        self.assertIn("*Low risk:* Docs only. Look first: `README.md`", text)
+        self.assertIn("• <https://github.com/o/r/pull/5|#5 PR 5>: waiting on Cone (1h 50m) · 🔒 needs approval", text)
+        self.assertIn("#6 PR 6>: approved · ✅ mergeable", text)
+        self.assertIn("*Handed to you by Samson*", text)
+        self.assertIn("👀 <u|#1 PR 1>: waiting on your review", text)
         for lead_only in ("Team load", "The number", "Waiting for your decision"):
             self.assertNotIn(lead_only, text)
         ids = [e["action_id"] for b in view["blocks"] if b["type"] == "actions" for e in b["elements"]]
@@ -114,15 +113,15 @@ class HomeViewTest(unittest.TestCase):
 
     def test_lead_sees_decisions_booked_blocks_and_snoozes(self):
         snap = snapshot([pr(3, lead=at(9))], pending=[(4, BLOCK), (4, HANDOFF)], snoozed=[(HANDOFF, at(18))],
-                        review_blocks={3: (at(19), at(19, 30))}, lead_status="No calls right now")
+                        review_blocks={3: (at(19), at(19, 30))}, lead_status="📅 You're in *Client call* until 17:30")
         view = home.render(snap, LEAD, TEAM, TZ, 4, links={4: "https://slack/card4"})
         text = self.texts(view)
-        self.assertIn("🗳️ Waiting for your decision · 2", text)
-        self.assertIn("Radar suggests: *📅 Block 19:00–19:30 to review*", text)
-        self.assertIn("Radar suggests: *✅ Hand off to Cone*", text)
+        self.assertIn("*Waiting for your decision* · 2 PRs", text)
+        self.assertIn("🔴 *<https://github.com/o/r/pull/3|#3 PR 3>*\n→ Block *19:00–19:30* to review", text)
+        self.assertIn("→ Hand off to *Cone*", text)
         self.assertIn("📅 Review block booked 19:00–19:30", text)
-        self.assertIn("📅 Review blocks: #3 19:00–19:30\n⏰ Snoozed: #1 until 18:00", text)
-        self.assertIn("🟢 No calls right now", text)
+        self.assertIn("📅 Review blocks: #3 19:00–19:30  ·  ⏰ Snoozed: #1 until 18:00", text)
+        self.assertIn("• Calendar: 📅 You're in *Client call* until 17:30", text)  # same line as the card header
         self.assertNotIn("older than 4h", text)  # #3 waits 7h 50m on the lead, but its block is booked
         urls = [b["accessory"].get("url") for b in view["blocks"] if "accessory" in b]
         self.assertEqual(urls.count("https://slack/card4"), 2)
@@ -137,21 +136,24 @@ class HomeViewTest(unittest.TestCase):
         snap = snapshot(prs, busy={LEAD.email: [(at(16), at(18))]}, stats=st, savings=sv)
         view = home.render(snap, LEAD, TEAM, TZ, 4)
         text = self.texts(view)
-        self.assertIn("👥 Team load", text)
-        self.assertIn("🧱 *Samson* holds 3 of 3 open review requests (100%)", text)
-        self.assertIn("📅 *Samson* has 3 reviews waiting but is busy until 18:00", text)
-        self.assertIn("🔴 *2 review requests* older than 4h", text)
-        self.assertIn("4.0× faster", text)
-        self.assertIn("💰 The number · this week", text)
+        self.assertIn("*Team load* · open review requests per person", text)
+        self.assertIn("▰▰▰▰▰▰▰▰▰▰  *3*  Samson (busy until 18:00, oldest 7h 50m)", text)
+        self.assertIn("• Samson holds 3 of 3 open review requests (100%)", text)
+        self.assertIn("• Samson has 3 reviews waiting and is busy until 18:00", text)
+        self.assertIn("• 2 review requests older than 4h", text)
+        self.assertIn("▰▰▰▰▰▰▰▰▰▰  *8h 00m*  without Radar (n=1)", text)
+        self.assertIn("▰▰▱▱▱▱▱▱▱▱  *2h 00m*  with Radar (n=1)", text)
+        self.assertIn("💰 *Saved ~", text)
+        self.assertIn("*The number* · this week", text)
         ids = [e["action_id"] for b in view["blocks"] if b["type"] == "actions" for e in b["elements"]]
         self.assertIn("home:sweep", ids)
         self.assertLessEqual(len(view["blocks"]), 100)
 
     def test_empty_queue_and_missing_stats(self):
         text = self.texts(home.render(snapshot([]), LEAD, TEAM, TZ, 4))
-        self.assertIn("Inbox zero", text)
+        self.assertIn("Nothing is waiting on your review.", text)
         self.assertIn("Nothing to decide right now", text)
-        self.assertIn("No bottlenecks", text)
+        self.assertIn("None right now.", text)
         self.assertIn("Stats are unavailable", text)
 
     def test_number_without_radar_reviews_explains_instead_of_saying_zero(self):

@@ -7,7 +7,7 @@ from github.Repository import Repository
 
 from radar.config import Settings
 from radar.core.metrics import ReviewRecord, compute, render, savings
-from radar.integrations import github
+from radar.integrations import github, google_calendar
 from radar.storage import store
 
 
@@ -45,12 +45,21 @@ def fetch(repo: Repository, since: dt.datetime) -> list[ReviewRecord]:
     return records
 
 
-def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
+def report(s: Settings, days: int = 30, now: dt.datetime | None = None,
+           since: dt.datetime | None = None, until: dt.datetime | None = None) -> str:
+    """since/until: an explicit window (e.g. one pilot phase) instead of the last `days`. PRs opened after
+    `until` are left out."""
     now = now or dt.datetime.now(dt.timezone.utc)
     store.init()
     repo = github.live_repo(s)
-    since = now - dt.timedelta(days=days)
-    st = compute(fetch(repo, since), store.all_suggestions(), now)
+    window = since is not None
+    until = until or now
+    since = since or now - dt.timedelta(days=days)
+    records = [r for r in fetch(repo, since) if r.start <= until]
+    rows = store.all_suggestions()
+    if window:
+        rows = [r for r in rows if since <= dt.datetime.fromisoformat(r["suggested_at"]) <= until]
+    st = compute(records, rows, until)
     usage = store.llm_usage_since(since)
     sv = savings(
         st,
@@ -62,4 +71,9 @@ def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
         usd_per_m_input=s.llm_usd_per_m_input,
         usd_per_m_output=s.llm_usd_per_m_output,
     )
-    return render(st, repo.full_name, days, sv)
+    period = None
+    if window:
+        tz = google_calendar.timezone_of(s.team.lead.email)
+        a, b = since.astimezone(tz), until.astimezone(tz)
+        period = f"{a:%d %b %H:%M}–{b:%H:%M}" if a.date() == b.date() else f"{a:%d %b %H:%M}–{b:%d %b %H:%M}"
+    return render(st, repo.full_name, days, sv, period=period)

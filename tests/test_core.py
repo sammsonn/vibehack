@@ -119,6 +119,7 @@ class StatsTest(unittest.TestCase):
         text = metrics.render(st, "o/r", 30)
         self.assertIn("With Radar: *2h 00m* median (n=1)", text)
         self.assertIn("3 suggested · 2 approved (1 handoff, 1 review block) · 1 kept", text)
+        self.assertIn("· 08 Nov 14:00–17:30", metrics.render(st, "o/r", 30, period="08 Nov 14:00–17:30"))
 
 
 class DescribeSlotTest(unittest.TestCase):

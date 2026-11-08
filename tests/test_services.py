@@ -10,7 +10,7 @@ from radar.config import Member, Settings, Team
 from radar.core import ranking
 from radar.core.models import Candidate, Suggestion, TokenUsage
 from radar.integrations import llm
-from radar.services import actions, approval_gate, digest, reminders, review_alerts, sweep, triage
+from radar.services import actions, approval_gate, baseline, digest, reminders, review_alerts, sweep, triage
 from radar.slack import blocks, messages
 from radar.storage import store
 from tests.helpers import HIGH, LOW, NOW, TEAM, TZ, ANDREI, CONE, LEAD, at, make_pr
@@ -359,6 +359,52 @@ class ReviewAlertTest(unittest.TestCase):
                          "✅ *Cone approved* <https://github.com/o/r/pull/1|#1 PR 1>: the merge is unblocked.")
         self.assertEqual(messages.review_alert_text(self.settings, self.sg, "cone", "CHANGES_REQUESTED", False),
                          "✍️ *Cone requested changes on* <https://github.com/o/r/pull/1|#1 PR 1>: back with the author.")
+
+
+class BaselineTest(unittest.TestCase):
+    def pr(self, n, author, opened_h, review_h, reviewer, requested=(), merged=True, open_=False):
+        first = at(opened_h) + dt.timedelta(hours=review_h) if review_h is not None else None
+        return baseline.PRHistory(n, author, at(opened_h), first, reviewer, frozenset(requested), merged, open_)
+
+    def test_wait_concentration_and_lead_bottleneck(self):
+        prs = [
+            self.pr(1, "ana", 9, 6, "sam", {"sam"}),
+            self.pr(2, "dan", 9, 4, "sam", {"sam"}),
+            self.pr(3, "sam", 10, 1, "ana", {"ana"}),
+            self.pr(4, "ana", 11, None, None, merged=True),
+            self.pr(5, "dan", 12, None, None, {"sam"}, merged=False, open_=True),
+        ]
+        b = baseline.compute(prs, at(16))
+        self.assertEqual((b.prs, b.authors, b.reviewed), (5, 3, 3))
+        self.assertEqual(b.median, dt.timedelta(hours=4))
+        self.assertEqual((b.merged_unreviewed, b.merged), (1, 4))
+        self.assertEqual((b.waiting, b.waiting_median), (1, dt.timedelta(hours=4)))
+        self.assertEqual((b.top_reviewer, round(b.top_share, 2)), ("sam", 0.67))
+        self.assertEqual((b.wait_top_requested, b.wait_others_requested), (dt.timedelta(hours=5), dt.timedelta(hours=1)))
+        self.assertIn("PRs waited 4h 00m for a first review; 67% of first reviews came from one person",
+                      baseline.render(b, "o/r", 90))
+
+    def test_backtest_hands_off_only_low_risk_prs_waiting_on_the_bottleneck(self):
+        def pr(n, author, review_h, reviewer, requested, files):
+            return baseline.PRHistory(n, author, at(9), at(9) + dt.timedelta(hours=review_h), reviewer,
+                                      frozenset(requested), True, False, files, 10)
+        prs = [
+            pr(1, "ana", 10, "sam", {"sam"}, ("README.md",)),          # low risk on sam -> handed off
+            pr(2, "dan", 8, "sam", {"sam"}, ("payments/api.py",)),     # high risk -> stays with sam
+            pr(3, "ana", 2, "dan", {"dan"}, ("src/a.py",)),            # asked someone else -> unchanged
+            pr(4, "dan", 1, "ana", {"ana"}, ("src/b.py",)),
+            pr(5, "ana", 3, "dan", {"dan"}, ("src/c.py",)),
+            pr(6, "dan", 4, "ana", {"ana"}, ("src/d.py",)),
+            pr(7, "ana", 0.5, "sam", {"sam"}, ("docs.md",)),           # already faster than a handoff -> unchanged
+        ]
+        pool = baseline.others_waits(prs, "sam")
+        self.assertEqual(sorted(pool), [dt.timedelta(hours=h) for h in (1, 2, 3, 4)])
+        pj = baseline.project(prs, "sam", 1.0, [dt.timedelta(hours=1)], runs=10)
+        self.assertEqual((pj.on_bottleneck, pj.handed_off, pj.kept_risky), (3, 2, 1))
+        self.assertEqual(pj.risk_reasons, Counter(payments=1))
+        # PR 1 drops from 10h to 1h; PR 7 gets slower (0.5h -> 1h): handoffs aren't assumed to always help.
+        self.assertEqual(pj.hours_removed, 9 - 0.5)
+        self.assertEqual(baseline.project(prs, "sam", 0.0, pool, runs=10).hours_removed, 0)
 
 
 if __name__ == "__main__":

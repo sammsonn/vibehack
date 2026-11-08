@@ -4,6 +4,8 @@
   python -m radar sweep [--at 16:50]        Post a card now; clicks are handled by the running bot
   python -m radar sweep --dry-run           Print suggestions without posting or storing anything
   python -m radar stats [--days 30]         Time to first review with vs without Radar, plus decisions
+  python -m radar stats --since 14:00 --until 17:30   Same, for one window (e.g. a pilot phase)
+  python -m radar baseline owner/repo [--days 90]     Before number from a real repo's PR history (uses GITHUB_TOKEN)
   python -m radar remind [--at 19:05]       Send due reminders for unclicked cards now (demo)
   python -m radar digest [--at 18:35]       Send the "while you were in calls" digest now if one is due (demo)
   python -m radar health                    Exit 0 if the running bot checked in recently (Docker HEALTHCHECK)
@@ -19,7 +21,7 @@ from slack_sdk import WebClient
 
 from radar import config, runtime
 from radar.integrations import google_calendar
-from radar.services import approval_gate, digest, reminders, stats, sweep
+from radar.services import approval_gate, baseline, digest, reminders, stats, sweep
 from radar.slack import blocks, bot, messages
 from radar.storage import store
 
@@ -43,6 +45,13 @@ def main() -> None:
     sw.add_argument("--dry-run", action="store_true", help="print suggestions only")
     st = sub.add_parser("stats", help="time to first review, with vs without Radar")
     st.add_argument("--days", type=int, default=30)
+    st.add_argument("--since", help="window start (HH:MM today, or ISO timestamp); overrides --days")
+    st.add_argument("--until", help="window end (HH:MM today, or ISO timestamp); default now")
+    bl = sub.add_parser("baseline", help="before number from a real repo's PR history")
+    bl.add_argument("repo", help="owner/repo")
+    bl.add_argument("--days", type=int, default=90)
+    bl.add_argument("--project", action="store_true", help="backtest: replay Radar's rules on the real PRs")
+    bl.add_argument("--acceptance", type=float, default=0.8, help="share of handoffs the lead accepts (backtest)")
     rm = sub.add_parser("remind", help="send due reminders for unclicked cards")
     rm.add_argument("--at", help="pretend it is this time (HH:MM today, or ISO timestamp)")
     dg = sub.add_parser("digest", help="send the post-call digest if one is due")
@@ -50,6 +59,8 @@ def main() -> None:
     sub.add_parser("gate", help="update the radar/approval status on open PRs")
     sub.add_parser("health", help="exit 0 if the running bot checked in recently")
     args = parser.parse_args()
+    if hasattr(sys.stdout, "reconfigure"):  # Windows consoles default to cp1252 and choke on emoji
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     if args.command == "health":  # needs no secrets, so it works in a bare HEALTHCHECK
         age = runtime.heartbeat_age(runtime.heartbeat_path())
@@ -73,11 +84,19 @@ def main() -> None:
             sys.exit(str(e))
         return
     if args.command == "stats":
-        print(stats.report(s, args.days))
+        if args.since or args.until:
+            tz = google_calendar.timezone_of(s.team.lead.email)
+            since = bot.parse_at(args.since, tz) or dt.datetime.now(tz) - dt.timedelta(days=args.days)
+            print(stats.report(s, args.days, since=since, until=bot.parse_at(args.until, tz)))
+        else:
+            print(stats.report(s, args.days))
         return
     if args.command == "gate":
         store.init()
         approval_gate.sync(s)
+        return
+    if args.command == "baseline":
+        print(baseline.report(s.github_token, args.repo, args.days, project=args.project, acceptance=args.acceptance))
         return
 
     tz = google_calendar.timezone_of(s.team.lead.email)

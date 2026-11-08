@@ -116,8 +116,11 @@ def _usd(value: float) -> str:
     return f"${value:.2f}" if value >= 0.01 or value == 0 else f"${value:.3f}"
 
 
-def savings_lines(sv: Savings, days: int) -> list[str]:
-    period = "this week" if days == 7 else f"in the last {days} days"
+def savings_lines(sv: Savings, days: int, period: str | None = None) -> list[str]:
+    if period:
+        period = f"in {period}"
+    else:
+        period = "this week" if days == 7 else f"in the last {days} days"
     return [
         f"💰 *Saved ~{sv.dev_hours:.1f} developer-hours {period} ≈ €{sv.eur:,.0f}* vs ~{_usd(sv.model_usd)} model cost",
         f"_{sv.prs} PR{'s' if sv.prs != 1 else ''} reviewed after a Radar action · {fmt(sv.wait_avoided)} of waiting avoided "
@@ -126,14 +129,15 @@ def savings_lines(sv: Savings, days: int) -> list[str]:
     ]
 
 
-def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None) -> str:
+def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None, period: str | None = None) -> str:
+    """period: label for an explicit window (e.g. "08 Nov 14:00–17:30"); defaults to the last `days`."""
     def line(label: str, values: list[dt.timedelta]) -> str:
         return f"• {label}: *{fmt(median(values))}* median (n={len(values)})"
 
     c = st.status_counts
     suggested = sum(c.values()) - c["superseded"]
     lines = [
-        f"*🛰️ Review Radar stats* · `{repo_name}` · last {days} days",
+        f"*🛰️ Review Radar stats* · `{repo_name}` · {period or f'last {days} days'}",
         "*Time to first review* (opened → first review by someone other than the author, bots excluded)",
         line("Without Radar", st.without_radar),
         line("With Radar", st.with_radar),
@@ -149,5 +153,5 @@ def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None) -> s
         f"• Lead's time from card to decision: *{fmt(median(st.decision_times))}* median",
     ]
     if sv:
-        lines += savings_lines(sv, days)
+        lines += savings_lines(sv, days, period)
     return "\n".join(lines)

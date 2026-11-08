@@ -152,6 +152,11 @@ class SavingsTest(unittest.TestCase):
         self.assertEqual((sv.baseline, sv.baseline_source), (dt.timedelta(hours=8), "BASELINE_WAIT_HOURS from the interview"))
         self.assertAlmostEqual(sv.dev_hours, 1.5)
 
+    def test_buy_line_projects_model_cost_to_a_month(self):
+        line = metrics.buy_line("CodeRabbit Team", 48, 4, model_usd=0.07, days=7, hosting_usd=5)
+        self.assertEqual(line, "🛒 *Buying instead:* CodeRabbit Team ≈ $192/month (4 seats × $48) vs Radar ≈ $5.30/month "
+                               "(hosting $5 + model $0.30), and it doesn't reroute reviews around the lead's calls")
+
     def test_line(self):
         lines = metrics.savings_lines(self.savings(self.stats([10, 12, 20], [2, 4, 15])), 7)
         self.assertEqual(lines[0], "💰 *Saved ~4.5 developer-hours this week ≈ €90* vs ~$0.04 model cost")

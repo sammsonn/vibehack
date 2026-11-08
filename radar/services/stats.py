@@ -6,7 +6,7 @@ from github.PaginatedList import PaginatedList
 from github.Repository import Repository
 
 from radar.config import Settings
-from radar.core.metrics import ReviewRecord, compute, render, savings
+from radar.core.metrics import ReviewRecord, buy_line, compute, render, savings
 from radar.integrations import github
 from radar.storage import store
 
@@ -62,4 +62,6 @@ def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
         usd_per_m_input=s.llm_usd_per_m_input,
         usd_per_m_output=s.llm_usd_per_m_output,
     )
-    return render(st, repo.full_name, days, sv)
+    buy = buy_line(s.buy_tool_name, s.buy_tool_usd_per_seat, len(s.team.members), sv.model_usd, days,
+                   s.hosting_usd_per_month)
+    return render(st, repo.full_name, days, sv, buy)

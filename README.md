@@ -92,6 +92,12 @@ Developer-hours = total wait avoided × `BLOCKED_COST_FACTOR`, priced at `DEV_HO
 token count of every LLM call (logged in `radar.db`) at `LLM_USD_PER_M_INPUT` / `LLM_USD_PER_M_OUTPUT`. The footnote
 under the line prints every number used. `/radar stats 7` says "this week"; other values say "in the last N days".
 
+**Buy vs automate** (the line after it, e.g. *"Buying instead: CodeRabbit Team ≈ $192/month (4 seats × $48) vs Radar
+≈ $5.30/month (hosting $5 + model $0.30), and it doesn't reroute reviews around the lead's calls"*):
+`BUY_TOOL_USD_PER_SEAT` × the people in `team.json` (per-seat tools bill everyone who opens PRs), against Radar's
+monthly cost = `RADAR_HOSTING_USD_PER_MONTH` + the real model cost for the period projected to 30 days. Default: CodeRabbit Team, $48/user/month billed annually (coderabbit.ai/pricing, November 2026),
+the tier that includes PR triage; its $24 Essentials tier only reviews code.
+
 ## Code layout
 
 Each layer only imports from the layers listed after it, so the core logic is testable without any network.
@@ -223,6 +229,8 @@ All settings live in `.env` (see `.env.example`); real environment variables win
 | `BLOCKED_COST_FACTOR` | 0.25 | developer-hours lost per hour a PR waits |
 | `DEV_HOURLY_EUR` | 20 | developer cost per hour |
 | `LLM_USD_PER_M_INPUT`, `LLM_USD_PER_M_OUTPUT` | 0.10, 0.50 | model price per 1M tokens |
+| `BUY_TOOL_NAME`, `BUY_TOOL_USD_PER_SEAT` | CodeRabbit Team, 48 | the per-seat tool in the "Buying instead" line |
+| `RADAR_HOSTING_USD_PER_MONTH` | 5 | Radar's hosting cost (small VPS), added to model usage in that line |
 | `RADAR_HOME` | the repo folder | where `.env`, `team.json` and the other files are looked up |
 | `RADAR_TEAM_FILE`, `RADAR_DB_PATH`, `GOOGLE_TOKEN_PATH`, `GOOGLE_CREDENTIALS_PATH` | `team.json`, `radar.db`, `token.json`, `credentials.json` | file locations; relative paths resolve against `RADAR_HOME`; lock and heartbeat live next to the database |
 | `GITHUB_TOKEN` (or `GITHUB_TOKEN_1`), `BEFORE_REPO` | – | reserved for the "before" metric on a historical repo; **read but not used yet** |

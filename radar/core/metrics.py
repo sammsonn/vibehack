@@ -126,7 +126,18 @@ def savings_lines(sv: Savings, days: int) -> list[str]:
     ]
 
 
-def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None) -> str:
+def buy_line(tool: str, usd_per_seat: float, seats: int, model_usd: float, days: int, hosting_usd: float) -> str:
+    """The decision in one line: a per-seat tool for everyone who opens PRs vs Radar's monthly cost
+    (hosting + model usage projected from the stats window to a 30-day month)."""
+    model_month = model_usd * 30 / days if days else model_usd
+    return (
+        f"🛒 *Buying instead:* {tool} ≈ ${usd_per_seat * seats:,.0f}/month ({seats} seat{'s' if seats != 1 else ''} × "
+        f"${usd_per_seat:g}) vs Radar ≈ ${hosting_usd + model_month:,.2f}/month (hosting ${hosting_usd:g} + model "
+        f"{_usd(model_month)}), and it doesn't reroute reviews around the lead's calls"
+    )
+
+
+def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None, buy: str | None = None) -> str:
     def line(label: str, values: list[dt.timedelta]) -> str:
         return f"• {label}: *{fmt(median(values))}* median (n={len(values)})"
 
@@ -150,4 +161,6 @@ def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None) -> s
     ]
     if sv:
         lines += savings_lines(sv, days)
+    if buy:
+        lines.append(buy)
     return "\n".join(lines)

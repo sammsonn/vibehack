@@ -25,17 +25,17 @@ BRANCH_PREFIX = "demo/"
 DEMO_TAG = {"radar_demo": "1"}
 MARKER = "<!-- radar-demo -->"
 
-# author: index into the teammates that have a token; reviewers: "lead" and/or "next" (the following teammate)
+# author: index into the teammates that have a token. Every PR asks the lead for review; Radar decides the rest.
 PRS = [
     {
-        "branch": "docs-export-columns", "author": 0, "reviewers": ["lead"],
+        "branch": "docs-export-columns", "author": 0,
         "title": "Document the CSV columns of the invoice export",
         "body": "Lists every column of the export with its type, so finance can map it in their sheet.",
         "files": {"README.md": ("append", "\n## Export columns\n| column | type |\n|---|---|\n| number | INV-YYYY-NNNNN |\n"
                                           "| issued_at | ISO date |\n| amount | cents, integer |\n| currency | ISO 4217 |\n")},
     },
     {
-        "branch": "utils-normalize-whitespace", "author": 1, "reviewers": ["lead"],
+        "branch": "utils-normalize-whitespace", "author": 1,
         "title": "Collapse repeated whitespace in customer names",
         "body": "Customer names pasted from emails often contain double spaces and tabs; this normalises them.",
         "files": {"src/utils.py": ("append", "\n\ndef normalize_whitespace(text: str) -> str:\n"
@@ -43,7 +43,7 @@ PRS = [
                                              "    return \" \".join(text.split())\n")},
     },
     {
-        "branch": "webhook-secret-rotation", "author": 2, "reviewers": ["lead"],
+        "branch": "webhook-secret-rotation", "author": 2,
         "title": "Accept the previous Stripe signing secret during rotation",
         "body": "While we rotate the webhook secret, events signed with the old secret are still accepted for 24h.",
         "files": {"payments/webhook.py": ("append", "\n\nimport hmac\nimport os\n\n\n"
@@ -58,14 +58,14 @@ PRS = [
                                                     "               for s in signing_secrets())\n")},
     },
     {
-        "branch": "migration-paid-at-index", "author": 0, "reviewers": ["lead"],
+        "branch": "migration-paid-at-index", "author": 0,
         "title": "Index invoices by paid_at for the monthly report",
         "body": "The monthly revenue report scans the whole invoices table; this adds the index it needs.",
         "files": {"migrations/0043_invoices_paid_at_index.sql": ("create", "CREATE INDEX CONCURRENTLY IF NOT EXISTS invoices_paid_at_idx\n"
                                                                           "    ON invoices (paid_at)\n    WHERE paid_at IS NOT NULL;\n")},
     },
     {
-        "branch": "tests-invoice-number", "author": 1, "reviewers": ["lead", "next"],
+        "branch": "tests-invoice-number", "author": 1,
         "title": "Test invoice_number edge cases",
         "body": "Covers the first sequence number, padding past 99999 and custom prefixes.",
         "files": {"tests/test_utils.py": ("append", "\n\ndef test_invoice_number_pads_and_prefixes():\n"
@@ -75,7 +75,7 @@ PRS = [
                                                     "    assert invoice_number(7, 2026, prefix=\"CN\") == \"CN-2026-00007\"\n")},
     },
     {
-        "branch": "db-retry-jitter", "author": 2, "reviewers": ["lead"],
+        "branch": "db-retry-jitter", "author": 2,
         "title": "Add jitter to payment DB write retries",
         "body": "Retries after a deadlock all fired at the same moment; random jitter spreads them out.",
         "files": {"payments/db.py": ("append", "\n\nimport random\n\n\n"
@@ -84,7 +84,7 @@ PRS = [
                                                "    return random.uniform(0, base * 2 ** attempt)\n")},
     },
     {
-        "branch": "export-currency-column", "author": 0, "reviewers": ["next"],
+        "branch": "export-currency-column", "author": 0,
         "title": "Add the currency column to the CSV export",
         "body": "Mixed-currency customers could not tell EUR from RON rows in the export.",
         "files": {"src/export.py": ("append", "\n\nEXPORT_COLUMNS = [\"number\", \"issued_at\", \"amount\", \"currency\"]\n")},
@@ -147,16 +147,8 @@ def seed_prs(s: config.Settings) -> None:
                 repo.update_file(path, message, current.decoded_content.decode() + text, current.sha, branch=branch)
         pr = repo.create_pull(base=repo.default_branch, head=branch, title=spec["title"],
                               body=f"{spec['body']}\n\n{MARKER}")
-        reviewers = []
-        for r in spec["reviewers"]:
-            if r == "lead":
-                reviewers.append(s.team.lead.github)
-            else:
-                others = [m for m in s.team.teammates if m.github != author.github]
-                reviewers.append(others[spec["author"] % len(others)].github)
-        pr.create_review_request(reviewers=reviewers)
-        names = ", ".join(s.team.display_name(r) for r in reviewers)
-        print(f"  #{pr.number} {spec['title']} (by {author.name}, review: {names})")
+        pr.create_review_request(reviewers=[s.team.lead.github])
+        print(f"  #{pr.number} {spec['title']} (by {author.name}, review: {s.team.lead.name})")
 
 
 def seed_calendar(s: config.Settings, start_at: dt.datetime) -> None:

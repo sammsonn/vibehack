@@ -6,7 +6,7 @@ from github.PaginatedList import PaginatedList
 from github.Repository import Repository
 
 from radar.config import Settings
-from radar.core.metrics import ReviewRecord, buy_line, compute, render, savings
+from radar.core.metrics import ReviewRecord, Savings, Stats, buy_line, compute, render, savings
 from radar.integrations import github
 from radar.storage import store
 
@@ -45,7 +45,8 @@ def fetch(repo: Repository, since: dt.datetime) -> list[ReviewRecord]:
     return records
 
 
-def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
+def number(s: Settings, days: int = 30, now: dt.datetime | None = None) -> tuple[Stats, Savings, str]:
+    """(stats, savings, repo full name) for the last `days`."""
     now = now or dt.datetime.now(dt.timezone.utc)
     store.init()
     repo = github.live_repo(s)
@@ -62,6 +63,11 @@ def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
         usd_per_m_input=s.llm_usd_per_m_input,
         usd_per_m_output=s.llm_usd_per_m_output,
     )
+    return st, sv, repo.full_name
+
+
+def report(s: Settings, days: int = 30, now: dt.datetime | None = None) -> str:
+    st, sv, repo_name = number(s, days, now)
     buy = buy_line(s.buy_tool_name, s.buy_tool_usd_per_seat, len(s.team.members), sv.model_usd, days,
                    s.hosting_usd_per_month)
-    return render(st, repo.full_name, days, sv, buy)
+    return render(st, repo_name, days, sv, buy)

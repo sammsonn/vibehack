@@ -74,6 +74,10 @@ class Settings:
     dev_hourly_eur: float = 20.0
     llm_usd_per_m_input: float = 0.10
     llm_usd_per_m_output: float = 0.50
+    # The "buy" option in the decision line of /radar stats
+    buy_tool_name: str = "CodeRabbit Team"
+    buy_tool_usd_per_seat: float = 48.0
+    hosting_usd_per_month: float = 5.0
 
 
 def _require(name: str) -> str:
@@ -122,5 +126,8 @@ def load() -> Settings:
         dev_hourly_eur=float(os.getenv("DEV_HOURLY_EUR", "20")),
         llm_usd_per_m_input=float(os.getenv("LLM_USD_PER_M_INPUT", "0.10")),
         llm_usd_per_m_output=float(os.getenv("LLM_USD_PER_M_OUTPUT", "0.50")),
+        buy_tool_name=os.getenv("BUY_TOOL_NAME", "CodeRabbit Team").strip() or "CodeRabbit Team",
+        buy_tool_usd_per_seat=float(os.getenv("BUY_TOOL_USD_PER_SEAT", "48")),
+        hosting_usd_per_month=float(os.getenv("RADAR_HOSTING_USD_PER_MONTH", "5")),
         team=_load_team(TEAM_FILE),
     )

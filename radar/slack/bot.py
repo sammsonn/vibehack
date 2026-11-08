@@ -110,6 +110,34 @@ def create_app(s: Settings) -> App:
     def on_command(ack, command, respond):
         handle_command(s, (command.get("text") or "").split(), ack, respond, post)
 
+    @app.event("app_home_opened")
+    def on_home_opened(event, client):
+        if event.get("tab") == "home":
+            messages.publish_home(client, s, event["user"])
+
+    @app.action(re.compile(r"^home:open:"))
+    def on_home_link(ack):
+        ack()  # link buttons open the URL in Slack; the click only needs acknowledging
+
+    @app.action("home:refresh")
+    def on_home_refresh(ack, body, client):
+        ack()
+        messages.publish_home(client, s, body["user"]["id"], force=True)
+
+    @app.action("home:sweep")
+    def on_home_sweep(ack, body, client):
+        ack()
+        user = body["user"]["id"]
+        if user != lead_id:
+            return
+        try:
+            if sweep.run(s, post, trigger="manual") is None:
+                client.chat_postMessage(channel=user, text="Nothing is waiting on you right now.")
+        except Exception as e:
+            log.exception("sweep from App Home failed")
+            client.chat_postMessage(channel=user, text=f"⚠️ Sweep failed: {e}")
+        messages.publish_home(client, s, user, force=True)
+
     return app
 
 

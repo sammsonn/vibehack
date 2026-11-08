@@ -1,4 +1,5 @@
-"""SQLite log of every card, suggestion and decision. Statuses: pending, working, handed_off, blocked, kept, snoozed, stale, failed, superseded."""
+"""SQLite log of every card, suggestion and decision, plus fired triggers and LLM token usage.
+Suggestion statuses: pending, working, handed_off, blocked, kept, snoozed, stale, failed, superseded."""
 import datetime as dt
 import os
 import sqlite3
@@ -60,8 +61,6 @@ def _add_handed_to(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE suggestions ADD COLUMN handed_to TEXT")
 
 
-# Schema version N is reached by running MIGRATIONS[:N] in order; the version is kept in PRAGMA user_version.
-# Every step must be safe on databases created before versioning existed. Append new steps, never edit old ones.
 LLM_USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS llm_usage (
     id INTEGER PRIMARY KEY,
@@ -74,12 +73,15 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 CREATE INDEX IF NOT EXISTS llm_usage_at ON llm_usage (at);
 """
 
+
 def _add_superseded_by(c: sqlite3.Connection) -> None:
     columns = {row["name"] for row in c.execute("PRAGMA table_info(suggestions)")}
     if "superseded_by" not in columns:
         c.execute("ALTER TABLE suggestions ADD COLUMN superseded_by INTEGER REFERENCES cards(id)")
 
 
+# Schema version N is reached by running MIGRATIONS[:N] in order; the version is kept in PRAGMA user_version.
+# Every step must be safe on databases created before versioning existed. Append new steps, never edit old ones.
 MIGRATIONS = [
     lambda c: c.executescript(SCHEMA),
     _add_handed_to,

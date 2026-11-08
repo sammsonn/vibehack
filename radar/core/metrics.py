@@ -7,7 +7,8 @@ from collections import Counter
 from dataclasses import dataclass
 
 APPROVED = ("handed_off", "blocked")
-DECIDED = ("handed_off", "blocked", "kept", "snoozed", "stale")
+# The lead's own clicks. "stale" is Radar skipping a PR that was reviewed or closed first, so it is not timed.
+DECIDED = ("handed_off", "blocked", "kept", "snoozed")
 
 
 @dataclass(frozen=True)
@@ -113,7 +114,24 @@ def savings(st: Stats, *, fallback_baseline_hours: float, blocked_cost_factor: f
 
 
 def _usd(value: float) -> str:
-    return f"${value:.2f}" if value >= 0.01 or value == 0 else f"${value:.3f}"
+    """Cents normally; two significant digits for sub-cent amounts so real usage never shows as $0.000."""
+    if value >= 0.01 or value == 0:
+        return f"${value:.2f}"
+    if value < 0.0001:
+        return "<$0.0001"
+    return f"${value:.2g}"
+
+
+def decisions_summary(c: Counter) -> str:
+    """'N suggested · … · K skipped · P open'; the parts add up to N (superseded rows moved to a newer card)."""
+    suggested = sum(c.values()) - c["superseded"]
+    approved = c["handed_off"] + c["blocked"]
+    return (
+        f"{suggested} suggested · {approved} approved "
+        f"({c['handed_off']} handoff{'s' if c['handed_off'] != 1 else ''}, "
+        f"{c['blocked']} review block{'s' if c['blocked'] != 1 else ''}) · {c['kept']} kept · {c['snoozed']} snoozed · "
+        f"{c['stale']} skipped · {c['pending'] + c['working']} open"
+    )
 
 
 def savings_lines(sv: Savings, days: int, period: str | None = None) -> list[str]:
@@ -147,8 +165,6 @@ def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None, buy:
     def line(label: str, values: list[dt.timedelta]) -> str:
         return f"• {label}: *{fmt(median(values))}* median (n={len(values)})"
 
-    c = st.status_counts
-    suggested = sum(c.values()) - c["superseded"]
     lines = [
         f"*🛰️ Review Radar stats* · `{repo_name}` · {period or f'last {days} days'}",
         "*Time to first review* (opened → first review by someone other than the author, bots excluded)",
@@ -160,9 +176,7 @@ def render(st: Stats, repo_name: str, days: int, sv: Savings | None = None, buy:
         lines.append(f"• Still waiting: {len(st.still_waiting)} PR{'s' if len(st.still_waiting) != 1 else ''} ({longest})")
     lines += [
         "*Radar decisions*",
-        f"• {suggested} suggested · {c['handed_off'] + c['blocked']} approved "
-        f"({c['handed_off']} handoff{'s' if c['handed_off'] != 1 else ''}, {c['blocked']} review block{'s' if c['blocked'] != 1 else ''})"
-        f" · {c['kept']} kept · {c['snoozed']} snoozed · {c['pending']} open",
+        f"• {decisions_summary(st.status_counts)}",
         f"• Lead's time from card to decision: *{fmt(median(st.decision_times))}* median",
     ]
     if sv:

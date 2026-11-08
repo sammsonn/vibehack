@@ -217,12 +217,8 @@ def _number(snap: Snapshot) -> list[dict]:
         lines.append(f"💰 No PR has been reviewed after a Radar action {period} yet, so there are no savings to show.")
     if snap.buy:
         lines.append(snap.buy)
-    c = st.status_counts
-    suggested = sum(c.values()) - c["superseded"]
     return [_section("\n".join(lines)), _context(
-        f"Radar decisions: {suggested} suggested · {c['handed_off'] + c['blocked']} approved "
-        f"({c['handed_off']} handoff{_s(c['handed_off'])}, {c['blocked']} review block{_s(c['blocked'])}) · "
-        f"{c['kept']} kept · {c['snoozed']} snoozed · {c['pending']} open · "
+        f"Radar decisions: {metrics.decisions_summary(st.status_counts)} · "
         f"your time from card to decision: {metrics.fmt(metrics.median(st.decision_times))} median")]
 
 

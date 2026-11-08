@@ -83,7 +83,7 @@ never live on two cards. Link previews are turned off and PR authors are shown b
 **Time to first review** on the live repo: from when a PR was opened (or last marked ready) to the first review by
 someone other than the author, bots excluded. **With Radar** = PRs where the lead approved a Radar handoff or review
 block *before* that first review; everything else is **without Radar**. Also shown: PRs still waiting, Radar's
-decisions (suggested, approved, kept, snoozed, open) and the lead's median time from card to decision.
+decisions (suggested, approved, kept, snoozed, skipped because the PR was reviewed or closed first, open) and the lead's median time from card to decision (his own clicks only).
 
 **Hours saved and cost** (last line, e.g. *"Saved ~4.5 developer-hours this week ≈ €90 vs ~$0.04 model cost"*):
 for each PR reviewed after a Radar action, wait avoided = `max(0, baseline − actual wait)`. The baseline is the live
@@ -244,7 +244,7 @@ All settings live in `.env` (see `.env.example`); real environment variables win
 | `BASELINE_WAIT_HOURS` | 8 | typical wait without Radar (from the interview), until the live repo has 3+ PRs reviewed without Radar |
 | `BLOCKED_COST_FACTOR` | 0.25 | developer-hours lost per hour a PR waits |
 | `DEV_HOURLY_EUR` | 20 | developer cost per hour |
-| `LLM_USD_PER_M_INPUT`, `LLM_USD_PER_M_OUTPUT` | 0.10, 0.50 | model price per 1M tokens |
+| `LLM_USD_PER_M_INPUT`, `LLM_USD_PER_M_OUTPUT` | 0.15, 0.60 | model price per 1M tokens: typical pay-as-you-go rate for gpt-oss-120b (Groq, Together, Amazon Bedrock; openrouter.ai, Nov 2026) |
 | `BUY_TOOL_NAME`, `BUY_TOOL_USD_PER_SEAT` | CodeRabbit Team, 48 | the per-seat tool in the "Buying instead" line |
 | `RADAR_HOSTING_USD_PER_MONTH` | 5 | Radar's hosting cost (small VPS), added to model usage in that line |
 | `RADAR_HOME` | the repo folder | where `.env`, `team.json` and the other files are looked up |

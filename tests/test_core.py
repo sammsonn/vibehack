@@ -121,6 +121,15 @@ class StatsTest(unittest.TestCase):
         self.assertIn("3 suggested · 2 approved (1 handoff, 1 review block) · 1 kept", text)
         self.assertIn("· 08 Nov 14:00–17:30", metrics.render(st, "o/r", 30, period="08 Nov 14:00–17:30"))
 
+    def test_radar_skips_are_counted_but_not_timed_as_lead_decisions(self):
+        rows = [self.row(5, "stale", 10, 11)]  # Radar skipped it: the PR was reviewed before the lead clicked
+        st = metrics.compute([], rows, at(16))
+        self.assertEqual(st.decision_times, [])
+        text = metrics.render(st, "o/r", 30)
+        self.assertIn("1 suggested · 0 approved (0 handoffs, 0 review blocks) · 0 kept · 0 snoozed · 1 skipped · 0 open",
+                      text)
+        self.assertIn("card to decision: *n/a*", text)
+
 
 class DescribeSlotTest(unittest.TestCase):
     def test_today_tomorrow_later(self):
@@ -164,6 +173,12 @@ class SavingsTest(unittest.TestCase):
         self.assertEqual(lines[0], "💰 *Saved ~4.5 developer-hours this week ≈ €90* vs ~$0.04 model cost")
         self.assertIn("240,000 LLM tokens", lines[1])
         self.assertIn("in the last 30 days", metrics.savings_lines(self.savings(self.stats([], [])), 30)[0])
+
+    def test_sub_cent_costs_stay_visible(self):
+        self.assertEqual(metrics._usd(0.00021), "$0.00021")  # 784 tokens of gpt-oss-120b
+        self.assertEqual(metrics._usd(0.00004), "<$0.0001")
+        self.assertEqual(metrics._usd(0), "$0.00")
+        self.assertEqual(metrics._usd(0.3), "$0.30")
 
 
 if __name__ == "__main__":
